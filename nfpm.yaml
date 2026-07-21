@@ -13,7 +13,7 @@ description: |
   Browser-based control app for a GRBL pen plotter.
   Bundles the gateway daemon (owns the serial port, streams G-code autonomously)
   and the built web GUI it serves. Self-contained: includes its own Node runtime.
-homepage: https://github.com/LAB271/PenPlotter
+homepage: https://github.com/LAB271/labs-pen-plotter
 license: MIT
 
 depends:

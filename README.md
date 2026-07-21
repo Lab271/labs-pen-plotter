@@ -131,7 +131,7 @@ The supported way to run on a Pi is the **`.deb` package** (`penplotter271_<vers
 64-bit Raspberry Pi OS Lite). It bundles its own Node runtime and the native `serialport`
 binding — no NodeSource setup and no build step on the Pi.
 
-Download the latest `.deb` from the [Releases](https://github.com/LAB271/PenPlotter/releases)
+Download the latest `.deb` from the [Releases](https://github.com/LAB271/labs-pen-plotter/releases)
 page and install it:
 
 ```bash
@@ -160,7 +160,7 @@ your edits survive package upgrades. After changing it, restart the service with
 | `GATEWAY_HOST` | `0.0.0.0` | Bind address. Ships LAN-exposed so the app opens with no tunnel. **No built-in auth** — `0.0.0.0` exposes unauthenticated control to the whole LAN (see Access); set `127.0.0.1` for loopback-only |
 | `GATEWAY_PORT` | `8717` | HTTP + WebSocket port |
 | `PLOTTER_PATH` | _(auto)_ | Pin the serial device; otherwise auto-detect |
-| `GITHUB_REPO` | `LAB271/PenPlotter` | Repo whose latest Release supplies the in-app update `.deb` |
+| `GITHUB_REPO` | `LAB271/labs-pen-plotter` | Repo whose latest Release supplies the in-app update `.deb` |
 
 ### Access (LAN — no tunnel, no web login)
 

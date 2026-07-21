@@ -11,7 +11,7 @@ set -eu
 STATE_DIR=/var/lib/penplotter271
 STATUS="${UPDATE_STATUS:-$STATE_DIR/.update-status.json}"
 PLOTTER_STATE="${PLOTTER_STATE:-$STATE_DIR/.plotter-state.json}"
-REPO="${GITHUB_REPO:-LAB271/PenPlotter}"
+REPO="${GITHUB_REPO:-LAB271/labs-pen-plotter}"
 NODE=/opt/penplotter271/node
 DEB="$STATE_DIR/penplotter271-update.deb"
 FROM="$(dpkg-query -W -f='${Version}' penplotter271 2>/dev/null || echo '')"

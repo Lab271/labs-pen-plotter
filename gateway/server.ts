@@ -42,7 +42,7 @@ const SESSION_FILE =
 const UPDATE_STATUS_FILE =
   process.env.UPDATE_STATUS ?? join(dirname(STATE_FILE), '.update-status.json');
 // GitHub repo (owner/name) whose latest Release supplies the update `.deb`.
-const GITHUB_REPO = process.env.GITHUB_REPO ?? 'LAB271/PenPlotter';
+const GITHUB_REPO = process.env.GITHUB_REPO ?? 'LAB271/labs-pen-plotter';
 // The daemon can't restart its own service; it kicks this detached oneshot, which
 // runs the apt-get install + restart as root. The sudoers rule scopes the user to
 // exactly this command (incl. --no-block).

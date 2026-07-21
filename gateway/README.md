@@ -27,7 +27,7 @@ npm run gateway:smoke
 
 **Prerequisites:** 64-bit Raspberry Pi OS (Lite is fine — headless), the Pi on your WiFi, SSH enabled, plotter on USB.
 
-**Install the package** — download the latest `penplotter271_<version>_arm64.deb` from [Releases](https://github.com/LAB271/PenPlotter/releases), then:
+**Install the package** — download the latest `penplotter271_<version>_arm64.deb` from [Releases](https://github.com/LAB271/labs-pen-plotter/releases), then:
 
 ```bash
 sudo apt install ./penplotter271_<version>_arm64.deb
