@@ -1,5 +1,9 @@
 # PenPlotter271
 
+[![CI](https://github.com/Lab271/labs-pen-plotter/actions/workflows/ci.yml/badge.svg)](https://github.com/Lab271/labs-pen-plotter/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Lab271/labs-pen-plotter?sort=semver)](https://github.com/Lab271/labs-pen-plotter/releases)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A browser-based control app for a GRBL-style pen plotter (built for a **UUNA TEK 3.0**
 with an A0 bed). Import an SVG or PNG, lay it out and scale it on the page, preview the
 exact pen path the machine will draw, and stream the generated G-code to the plotter.
