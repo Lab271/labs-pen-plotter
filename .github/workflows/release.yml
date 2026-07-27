@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 60
     steps:
       # Actions pinned to a full commit SHA (org policy); comment tracks the version.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The package version comes from package.json (nfpm ${SEMVER}); keep the tag
       # in lockstep so the Release, the .deb, and the in-app version banner agree.
