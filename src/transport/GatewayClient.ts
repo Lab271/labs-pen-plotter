@@ -25,6 +25,34 @@ type ClientEvents = {
 };
 
 /**
+ * Build the default WebSocket URL for the gateway.
+ *
+ * - Direct access (e.g. http://10.32.8.62:8717): scheme=ws, port=8717.
+ * - Behind an HTTPS reverse proxy (e.g. https://penplotter.example.com):
+ *   scheme=wss, host=location.host, port derived from the page. The proxy
+ *   terminates TLS and upgrades to a plain WS to the daemon — the
+ *   WebSocketServer in gateway/server.ts is attached to the same HTTP
+ *   server, so any path works.
+ *
+ * Without this, the hardcoded `ws://...:8717` triggers mixed-content
+ * blocking when the page is served over HTTPS (browsers refuse insecure
+ * WebSocket connections from secure pages).
+ */
+function defaultGatewayUrl(): string {
+  // SSR/Node guard: window may not exist in test envs.
+  if (typeof window === 'undefined' || typeof location === 'undefined') {
+    return 'ws://localhost:8717';
+  }
+  const isSecure = location.protocol === 'https:';
+  const scheme = isSecure ? 'wss' : 'ws';
+  // When opened directly on the Pi (no reverse proxy), location.port is
+  // the gateway port itself. Behind a proxy, location.host already
+  // includes any non-default port, so location.host is the right pick.
+  const host = location.port ? location.host : `${location.hostname}:8717`;
+  return `${scheme}://${host}`;
+}
+
+/**
  * Browser client for the gateway daemon. Presents the same observe-events +
  * command surface the UI used on GrblController, but everything flows over a
  * WebSocket — the browser never opens a serial port. The daemon owns the link.
@@ -48,7 +76,7 @@ export class GatewayClient {
   private nextId = 1;
   private pending = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
 
-  constructor(private url = `ws://${location.hostname}:8717`) {}
+  constructor(private url = defaultGatewayUrl()) {}
 
   on = this.events.on.bind(this.events);
   get connected(): boolean {
