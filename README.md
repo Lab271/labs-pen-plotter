@@ -241,4 +241,4 @@ change history for each feature live under `openspec/`.
 
 ## License
 
-MIT © Diederik Siderius — see [`LICENSE`](LICENSE).
+Apache License 2.0 © Diederik Siderius — see [`LICENSE`](LICENSE).
