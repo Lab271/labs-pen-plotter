@@ -27,17 +27,17 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/w3c-web-serial": "^1.0.6",
-    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-react": "^6.0.4",
     "esbuild": "^0.28.1",
-    "prettier": "^3.3.3",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.3.1",
-    "typescript": "^5.5.4",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.9"
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "allowScripts": {
     "@serialport/bindings-cpp@13.0.0": true,
