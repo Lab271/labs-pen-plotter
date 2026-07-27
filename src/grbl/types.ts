@@ -1,14 +1,5 @@
 export type MachineState =
-  | 'Idle'
-  | 'Run'
-  | 'Hold'
-  | 'Jog'
-  | 'Alarm'
-  | 'Door'
-  | 'Home'
-  | 'Check'
-  | 'Sleep'
-  | 'Unknown';
+  'Idle' | 'Run' | 'Hold' | 'Jog' | 'Alarm' | 'Door' | 'Home' | 'Check' | 'Sleep' | 'Unknown';
 
 export interface Position {
   x: number;
