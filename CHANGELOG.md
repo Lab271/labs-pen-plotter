@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dev-tooling maintenance: TypeScript 7, Vite 8.1, Vitest 4.1.10, Prettier 3.9,
+  `@vitejs/plugin-react` 6.0.4, and Tailwind 4.3.3. Added `src/vite-env.d.ts`
+  (`vite/client` types) so TypeScript 7 resolves the side-effect CSS import.
+
 ## [1.0.5] - 2026-07-27
 
 ### Changed
