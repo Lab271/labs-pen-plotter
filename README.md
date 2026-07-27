@@ -245,4 +245,4 @@ change history for each feature live under `openspec/`.
 
 ## License
 
-Apache License 2.0 © Diederik Siderius — see [`LICENSE`](LICENSE).
+Apache License 2.0 © Schuberg Philis — see [`LICENSE`](LICENSE).
