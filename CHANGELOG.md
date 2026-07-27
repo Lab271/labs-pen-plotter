@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-07-27
+
 ### Changed
 
-- Licensed the project under Apache License 2.0 (previously MIT).
-- Added open-source project hygiene: `CHANGELOG.md`, `CONTRIBUTING.md`,
-  `CODE_OF_CONDUCT.md`, `SECURITY.md`, README status badges, and Dependabot
-  update configuration.
+- Upgraded the frontend to **React 19** (`react`/`react-dom` 19.2, `react-konva`
+  19.2, and the matching `@types`).
+- Relicensed the project under **Apache License 2.0** (previously MIT).
+- Derive the WebSocket URL from the page's scheme/host so the app works behind an
+  HTTPS reverse proxy (`wss://`).
+- Dependency maintenance: `ws` 8.21.1, `tsx` 4.23.1, and the CI actions
+  (`actions/checkout` 7, `actions/setup-node` 7, `docker/setup-qemu-action` 4.2).
+
+### Added
+
+- Project docs and automation: `CHANGELOG.md`, README status badges, and a
+  Dependabot configuration for weekly dependency and GitHub Actions updates.
+
+### Security
+
+- Bumped `postcss` to resolve [GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849)
+  (dev-only transitive dependency).
 
 ## [1.0.4] - 2026-06-25
 
@@ -38,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The gateway daemon binds to `0.0.0.0` by default in the `.deb` so the app is
   reachable on the LAN with no tunnel. **Note:** the daemon has no built-in
-  authentication — see [`SECURITY.md`](SECURITY.md) before exposing it.
+  authentication — see the **Access** section of the [README](README.md) before
+  exposing it.
 
 ## [1.0.0] - 2026-06-23
 
@@ -67,7 +83,8 @@ First feature-complete release.
 - **In-app self-update** — install newer releases from the latest GitHub Release
   directly from the browser.
 
-[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.1...v1.0.2
