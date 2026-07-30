@@ -31,12 +31,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/w3c-web-serial": "^1.0.6",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "esbuild": "^0.28.1",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   },
   "allowScripts": {
