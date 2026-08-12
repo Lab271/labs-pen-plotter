@@ -6,6 +6,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait a week before proposing a new release: a compromised or broken
+    # version is usually caught and yanked within days, and nothing here is
+    # urgent enough to want a same-day bump.
+    cooldown:
+      default-days: 7
     groups:
       # Batch routine dev-dependency bumps into one PR to cut noise.
       dev-dependencies:
@@ -16,3 +21,5 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

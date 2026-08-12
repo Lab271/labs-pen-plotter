@@ -29,7 +29,7 @@ policy - including credit, the hall of fame, and the bounty - is at
 <https://schubergphilis.com/security>, and takes precedence over this document on
 anything it covers.
 
-**On GitHub:** private vulnerability reporting should be enabled on this repository - use
+**On GitHub:** private vulnerability reporting is enabled on this repository - use
 the ["Report a vulnerability" button](../../security/advisories/new) under the
 Security tab.
 

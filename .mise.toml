@@ -1,0 +1,74 @@
+# mise: https://mise.jdx.dev/
+#
+# Single source of truth for the toolchain and the task list. CI runs the same
+# `mise run ci` gate (see .github/workflows/ci.yml), so local and CI cannot drift.
+#
+# Node is pinned to the exact version packaging/assemble.sh bundles into the
+# .deb, so what CI tests is the runtime that actually ships to the Pi. If you
+# bump NODE_VERSION there, bump it here too.
+
+[tools]
+node = "22.20.0"
+zizmor = "1.29.0"     # GitHub Actions security audit
+actionlint = "1.7.12" # GitHub Actions schema + expression lint
+
+[tasks.install]
+description = "Install dependencies from the lockfile"
+run = "npm ci"
+
+[tasks.dev]
+description = "Vite dev server for UI work on :5173"
+run = "npm run dev"
+
+[tasks.gateway]
+description = "Run the plotter gateway daemon on :8717"
+run = "npm run gateway"
+
+[tasks.build]
+description = "Typecheck + build the GUI into dist/"
+run = "npm run build"
+
+[tasks.test]
+description = "Run the unit tests, enforcing the coverage floor"
+run = "npm test"
+
+[tasks.typecheck]
+description = "Type-check the browser sources"
+run = "npm run typecheck"
+
+[tasks.typecheck-node]
+description = "Type-check the gateway sources"
+run = "npm run typecheck:node"
+
+[tasks.format]
+description = "Format with Prettier"
+run = "npm run format"
+
+[tasks.format-check]
+description = "Check formatting without rewriting files"
+run = "npm run format:check"
+
+[tasks.audit]
+description = "Security-audit the workflows + dependabot config (zizmor)"
+# The token enables the online audits (impostor-commit, known-vulnerable-actions).
+# Without one zizmor falls back to offline and those two simply do not run.
+run = "GH_TOKEN=$(gh auth token 2>/dev/null) zizmor --collect=all --strict-collection ."
+
+[tasks.lint-actions]
+description = "Lint the workflows for schema + expression errors (actionlint)"
+run = "actionlint"
+
+[tasks.ci]
+description = "Full CI gate — exactly what CI runs"
+depends = ["format-check", "typecheck", "typecheck-node", "test", "build"]
+
+[tasks.ci-watch]
+description = "Watch GitHub Actions CI for the current branch; exits non-zero on failure"
+run = """
+sleep 5
+remote_url=$(git remote get-url upstream 2>/dev/null || git remote get-url origin)
+repo=$(echo "$remote_url" | sed -E 's|^.*github\\.com[:/]||; s|\\.git$||')
+run_id=$(gh run list --repo "$repo" --branch "$(git branch --show-current)" --limit 1 --json databaseId --jq '.[0].databaseId')
+if [ -z "$run_id" ]; then echo "No run found for current branch on $repo" >&2; exit 1; fi
+gh run watch --repo "$repo" --exit-status "$run_id"
+"""

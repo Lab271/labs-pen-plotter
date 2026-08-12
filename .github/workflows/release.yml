@@ -22,6 +22,11 @@ jobs:
     steps:
       # Actions pinned to a full commit SHA (org policy); comment tracks the version.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes with git — the release upload below authenticates
+          # with an explicit GH_TOKEN — so don't leave a credential in .git/config
+          # where the docker build step could pick it up.
+          persist-credentials: false
 
       # The package version comes from package.json (nfpm ${SEMVER}); keep the tag
       # in lockstep so the Release, the .deb, and the in-app version banner agree.

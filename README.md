@@ -194,7 +194,15 @@ downloads and installs the latest release `.deb` itself, then restarts — no SS
 app reconnects and shows the new version. To upgrade or **roll back** by hand, install a
 specific `.deb` (config and state are preserved):
 
+```bash
+# Grab any version's .deb from the Releases page, then on the Pi:
+sudo apt install --allow-downgrades ./penplotter271_<version>_arm64.deb
+sudo systemctl restart plotter-gateway
+```
 
+`--allow-downgrades` is what lets apt go backwards to an older version; it is
+harmless when upgrading. Never do this while a plot is running — restarting the
+daemon aborts it, with no way to resume.
 
 ### Building the package
 
@@ -212,30 +220,49 @@ they build from a repo checkout on the Pi instead of installing a versioned arti
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Vite dev server (UI work) |
-| `npm run build` | Typecheck + build the GUI into `dist/` |
-| `npm run gateway` | Run the plotter gateway daemon |
-| `npm run gateway:smoke` | Hardware smoke test (moves the machine — set work zero first) |
-| `npm test` | Run the unit test suite (Vitest) |
-| `npm run typecheck` | Type-check the browser sources |
-| `npm run typecheck:node` | Type-check the gateway sources |
-| `npm run format` | Format with Prettier |
+[mise](https://mise.jdx.dev/) pins the toolchain — including the exact Node version the
+`.deb` bundles — and CI runs the same tasks, so local and CI can't drift:
+
+```bash
+mise install       # install the pinned toolchain (Node, zizmor, actionlint)
+mise run install   # npm ci
+mise run ci        # the full gate: format-check, both typechecks, test, build
+```
+
+| Command | npm equivalent | What it does |
+| --- | --- | --- |
+| `mise run dev` | `npm run dev` | Vite dev server (UI work) |
+| `mise run build` | `npm run build` | Typecheck + build the GUI into `dist/` |
+| `mise run gateway` | `npm run gateway` | Run the plotter gateway daemon |
+| — | `npm run gateway:smoke` | Hardware smoke test (moves the machine — set work zero first) |
+| `mise run test` | `npm test` | Run the unit test suite with coverage (Vitest) |
+| `mise run typecheck` | `npm run typecheck` | Type-check the browser sources |
+| `mise run typecheck-node` | `npm run typecheck:node` | Type-check the gateway sources |
+| `mise run format` | `npm run format` | Format with Prettier |
+| `mise run format-check` | `npm run format:check` | Check formatting without rewriting |
+| `mise run audit` | — | Security-audit the workflows (zizmor) |
+| `mise run lint-actions` | — | Lint the workflows (actionlint) |
+| `mise run ci-watch` | — | Watch the CI run for the current branch |
 
 ## Testing
 
 ```bash
-npm test
+npm test           # or: mise run test
 ```
 
 Unit tests cover the pure, testable core — GRBL line parsing and streaming, SVG/PNG
 flattening and iso-contour tracing, placement and fit math, the detail thinner, and
 G-code generation (including the plot-time estimate).
 
+Coverage is measured over `src/plot` and `src/grbl` only — the framework-free core.
+`src/ui` and `src/transport` need a DOM and a live socket, so including them would
+only produce a floor low enough to be meaningless. The per-metric floors live in
+`vite.config.ts`; raise them as coverage improves, and never lower one to make CI
+pass.
+
 ## Tech stack
 
-React 18 · TypeScript · Vite · Tailwind CSS · Konva (canvas) · `serialport` + `ws` + `tsx`
+React 19 · TypeScript · Vite · Tailwind CSS · Konva (canvas) · `serialport` + `ws` + `tsx`
 (gateway) · Vitest
 
 ## Hardware
@@ -245,7 +272,9 @@ change history for each feature live under `openspec/`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+AI agents: see [AGENTS.md](AGENTS.md) — it carries the machine-safety rules that
+matter before you touch anything that moves the gantry.
 
 ## Security
 
