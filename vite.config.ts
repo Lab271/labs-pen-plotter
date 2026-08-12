@@ -13,6 +13,25 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'lcov'],
+      // Scoped to the pure, framework-free core — the part that is actually
+      // unit-testable. src/ui and src/transport need a DOM and a live socket,
+      // so folding them in would only produce a floor low enough to be
+      // meaningless. Widen this when those grow real tests.
+      include: ['src/plot/**', 'src/grbl/**'],
+      exclude: ['**/__tests__/**'],
+      // Set just under the coverage measured when this gate went in, so it
+      // ratchets against regressions rather than blocking today's work.
+      // Raise these as coverage improves; never lower them to make CI pass.
+      thresholds: {
+        statements: 50,
+        branches: 48,
+        functions: 40,
+        lines: 50,
+      },
+    },
   },
 });
 
