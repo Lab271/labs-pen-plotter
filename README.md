@@ -128,6 +128,7 @@ On macOS the daemon automatically runs `caffeinate -dimsu` for its lifetime so i
 | `GATEWAY_HOST` | `127.0.0.1` | Bind address. This is the **code default** (e.g. `npm run gateway` on a dev laptop); the **`.deb` ships `0.0.0.0`** (LAN — see the deployment section). The daemon has **no built-in auth**, so `0.0.0.0` exposes unauthenticated control to the whole LAN — use loopback + an SSH tunnel/VPN/reverse proxy on untrusted networks |
 | `PLOTTER_PATH` | _(auto)_ | Pin the serial device; otherwise auto-detect a `usbserial`/`wchusbserial`/`ttyUSB`/`ttyACM` port |
 | `PLOTTER_STATE` | `gateway/.plotter-state.json` | Where the remembered position is persisted |
+| `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes; add `http://localhost:5173` when driving a live daemon from the Vite dev server |
 
 ## Raspberry Pi deployment (Debian package)
 
@@ -165,6 +166,7 @@ your edits survive package upgrades. After changing it, restart the service with
 | `GATEWAY_PORT` | `8717` | HTTP + WebSocket port |
 | `PLOTTER_PATH` | _(auto)_ | Pin the serial device; otherwise auto-detect |
 | `GITHUB_REPO` | `LAB271/labs-pen-plotter` | Repo whose latest Release supplies the in-app update `.deb` |
+| `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes, so a reverse proxy that forwards the host needs no entry here |
 
 ### Access (LAN — no tunnel, no web login)
 
@@ -181,6 +183,14 @@ gantry and start or stop plots. This is acceptable only on a **fully trusted LAN
 network has untrusted devices, set `GATEWAY_HOST=127.0.0.1` in the conffile (loopback only)
 and reach the app over an SSH tunnel (`ssh -L 8717:localhost:8717 penplotter@penplotter.local`),
 a VPN (e.g. Tailscale), or a reverse proxy that adds its own authentication.
+
+The WebSocket does reject **cross-origin** handshakes (same-origin and
+`GATEWAY_ALLOWED_ORIGINS` only). That is not authentication — it stops a different
+class of attack. Browsers do not apply the same-origin policy to WebSocket
+connections, so without the check any web page someone on the network happened to
+open could connect from their browser and drive the machine, with no network access
+of the attacker's own. Reaching the daemon directly still requires nothing but
+network access.
 
 Closing the browser or dropping the connection does **not** stop a running plot — the Pi
 streams autonomously; reconnect to monitor. See [`gateway/README.md`](gateway/README.md)

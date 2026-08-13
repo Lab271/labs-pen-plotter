@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { readFileSync, writeFileSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GrblController } from '../src/grbl/GrblController';
 import { NodeSerialTransport } from './NodeSerialTransport';
+import { isOriginAllowed, parseAllowedOrigins } from './origin';
 import { DEFAULT_GATEWAY_PORT } from '../src/gateway/protocol';
 import type { ClientMessage, Snapshot, StreamDebug, UpdateStatus } from '../src/gateway/protocol';
 import type { StatusReport, GrblSettings } from '../src/grbl/types';
@@ -476,7 +477,18 @@ const httpServer = createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server: httpServer });
+// Reject cross-origin handshakes. There is no auth on this socket, so without
+// this any web page a user on the network opens could take control of the
+// machine from their browser. See gateway/origin.ts for the rules.
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.GATEWAY_ALLOWED_ORIGINS);
+const wss = new WebSocketServer({
+  server: httpServer,
+  verifyClient: ({ origin, req }: { origin: string; secure: boolean; req: IncomingMessage }) => {
+    if (isOriginAllowed(origin, req.headers.host, ALLOWED_ORIGINS)) return true;
+    console.warn(`[gateway] rejected WebSocket handshake from origin ${origin}`);
+    return false;
+  },
+});
 
 // Keepalive: ping each client every 30 s and drop ones that don't pong. Keeps
 // the browser↔Pi link alive through router/WiFi idle timeouts and reaps dead

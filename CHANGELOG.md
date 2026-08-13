@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-08-13
+
+### Security
+
+- Reject cross-origin WebSocket handshakes. Browsers do not apply the same-origin
+  policy to WebSocket connections — they send an `Origin` header and leave the
+  decision to the server, and this one accepted every caller. Because the daemon
+  has no authentication, any web page opened by anyone on the same network could
+  connect from their browser and take control: `jog`, `plot`, `setSetting` (writes
+  GRBL EEPROM) and `update` (installs a `.deb` and restarts) were all reachable,
+  with no network access of the attacker's own.
+
+  Same-origin handshakes pass, including through a reverse proxy that forwards the
+  original host. Requests without an `Origin` header (curl, the smoke test, native
+  clients) still pass — those already require network access to the daemon. Extra
+  origins can be allowed with `GATEWAY_ALLOWED_ORIGINS`.
+
+  This is not authentication: anything that can reach the port can still drive the
+  machine. Keep it on a trusted network, or bind to loopback.
+
 ## [1.0.6] - 2026-08-13
 
 ### Fixed
@@ -99,7 +119,8 @@ First feature-complete release.
 - **In-app self-update** — install newer releases from the latest GitHub Release
   directly from the browser.
 
-[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.3...v1.0.4
