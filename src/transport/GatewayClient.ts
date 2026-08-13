@@ -27,8 +27,8 @@ type ClientEvents = {
 /**
  * Build the default WebSocket URL for the gateway.
  *
- * - Direct access (e.g. http://10.32.8.62:8717): scheme=ws, port=8717.
- * - Behind an HTTPS reverse proxy (e.g. https://penplotter.example.com):
+ * - Direct access (e.g. http://plotter.local:8717): scheme=ws, port=8717.
+ * - Behind an HTTPS reverse proxy (e.g. https://plotter.example.com):
  *   scheme=wss, host=location.host, port derived from the page. The proxy
  *   terminates TLS and upgrades to a plain WS to the daemon — the
  *   WebSocketServer in gateway/server.ts is attached to the same HTTP
@@ -43,13 +43,12 @@ function defaultGatewayUrl(): string {
   if (typeof window === 'undefined' || typeof location === 'undefined') {
     return 'ws://localhost:8717';
   }
-  const isSecure = location.protocol === 'https:';
-  const scheme = isSecure ? 'wss' : 'ws';
-  // When opened directly on the Pi (no reverse proxy), location.port is
-  // the gateway port itself. Behind a proxy, location.host already
-  // includes any non-default port, so location.host is the right pick.
-  const host = location.port ? location.host : `${location.hostname}:8717`;
-  return `${scheme}://${host}`;
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  // location.host already carries the port whenever the URL has one — :8717
+  // when the daemon serves the page directly, nothing when a reverse proxy
+  // serves it on 80/443. Appending :8717 in that second case pointed the
+  // socket at a port the proxy does not listen on.
+  return `${scheme}://${location.host}`;
 }
 
 /**

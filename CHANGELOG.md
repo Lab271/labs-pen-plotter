@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-13
+
+### Fixed
+
+- Behind a reverse proxy on the default HTTPS port, the WebSocket URL appended
+  `:8717` to the proxied host, so the GUI loaded but every control was dead —
+  the socket pointed at a port the proxy does not listen on. `location.host`
+  already carries the port when the URL has one, so it is now used as-is. Direct
+  access on `:8717` is unaffected.
+
 ### Changed
 
 - Dev-tooling maintenance: TypeScript 7, Vite 8.1, Vitest 4.1.10, Prettier 3.9,
@@ -89,7 +99,8 @@ First feature-complete release.
 - **In-app self-update** — install newer releases from the latest GitHub Release
   directly from the browser.
 
-[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/Lab271/labs-pen-plotter/compare/v1.0.2...v1.0.3
