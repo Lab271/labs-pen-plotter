@@ -24,7 +24,7 @@
     "react-dom": "^19.2.8",
     "react-konva": "^19.2.5",
     "serialport": "^13.0.0",
-    "tsx": "^4.23.9",
+    "tsx": "^4.23.12",
     "ws": "^8.21.1"
   },
   "devDependencies": {
