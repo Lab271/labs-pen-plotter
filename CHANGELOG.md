@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-09-08
+
+### Added
+
+- **Actual size 1:1** placement button next to Fit corner / Fit paper. Import
+  still fits the artwork to the paper, which silently rescales a drawing that
+  declares its real size — an A4 file on the A0 bed plotted ~4× too large, and the
+  only way back was dragging the transform handles until the readout happened to
+  say 100%. The button resets the scale to exactly 1, keeps the rotation, and
+  anchors the rotated box to the registration corner.
+
+### Fixed
+
+- SVG import honours every CSS absolute length unit on the root `width`/`height`
+  (`mm`, `cm`, `Q`, `in`, `pt`, `pc`, `px`), not just `mm`. Illustrator's `pt`
+  exports, and `cm`/`in` files, previously fell back to the CSS-pixel assumption
+  and imported at the wrong physical size. A relative (`%`) or missing width now
+  falls back to an absolute height, and a root without a `viewBox` reads its user
+  units as the declared unit, per the SVG default viewBox.
+
 ## [1.0.7] - 2026-08-13
 
 ### Security
