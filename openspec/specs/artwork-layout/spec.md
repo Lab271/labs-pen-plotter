@@ -40,7 +40,7 @@ The system SHALL allow more than one artwork (SVG or traced image) to be placed 
 
 ### Requirement: Fit helpers
 
-The system SHALL provide fit-to-corner (align the artwork to the top-left registration corner) and fit-to-paper (scale the artwork to fit within the selected paper, preserving aspect ratio). Both SHALL account for the artwork's current rotation, anchoring/scaling its **rotated** bounding box.
+The system SHALL provide fit-to-corner (align the artwork to the top-left registration corner), fit-to-paper (scale the artwork to fit within the selected paper, preserving aspect ratio) and actual-size (reset the scale to 1:1 so the artwork plots at the physical size its file declares). All SHALL account for the artwork's current rotation, anchoring/scaling its **rotated** bounding box.
 
 #### Scenario: Fit to paper
 
@@ -51,6 +51,11 @@ The system SHALL provide fit-to-corner (align the artwork to the top-left regist
 
 - **WHEN** the operator chooses fit-to-corner
 - **THEN** the artwork's top-left aligns to the registration corner (work origin)
+
+#### Scenario: Actual size
+
+- **WHEN** the operator chooses actual-size on an artwork that import (or a drag) has rescaled
+- **THEN** the artwork's scale returns to exactly 100%, its rotation is kept, and its rotated box is anchored to the registration corner — an SVG declared as 210×297 mm plots as 210×297 mm
 
 #### Scenario: Fit after rotation
 

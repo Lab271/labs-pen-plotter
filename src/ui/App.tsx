@@ -8,7 +8,13 @@ import { flattenSvg, ABORTED } from '../plot/svg';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { applyDetail } from '../plot/detail';
 import { estimatePlotTime, formatDuration, generateGcode } from '../plot/gcode';
-import { anchorPlacement, bounds, fitPlacement, placePolylines } from '../plot/place';
+import {
+  actualSizePlacement,
+  anchorPlacement,
+  bounds,
+  fitPlacement,
+  placePolylines,
+} from '../plot/place';
 import { PAPER_SIZES, paperDims } from '../plot/paper';
 import type { Artwork, Placement, Polyline } from '../plot/types';
 import {
@@ -593,6 +599,13 @@ export function App() {
       ),
     );
   }
+  function actualSize() {
+    if (!selectedItem) return;
+    updatePlacement(
+      selectedItem.id,
+      actualSizePlacement(selectedItem.widthMm, selectedItem.heightMm, selectedItem.placement),
+    );
+  }
   function rotate90() {
     if (!selectedItem) return;
     const rotation = (selectedItem.placement.rotation + 90) % 360;
@@ -858,12 +871,20 @@ export function App() {
                 </ul>
               )}
 
-              <div className="mt-2 grid grid-cols-3 gap-1">
+              <div className="mt-2 grid grid-cols-2 gap-1">
                 <button className={btn} disabled={!selectedItem} onClick={fitToCorner}>
                   Fit corner
                 </button>
                 <button className={btn} disabled={!selectedItem} onClick={fitToPaper}>
                   Fit paper
+                </button>
+                <button
+                  className={btn}
+                  disabled={!selectedItem}
+                  onClick={actualSize}
+                  title="Plot at the size the file declares (100%)"
+                >
+                  Actual size 1:1
                 </button>
                 <button className={btn} disabled={!selectedItem} onClick={rotate90}>
                   Rotate 90°

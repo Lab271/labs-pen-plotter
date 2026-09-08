@@ -128,10 +128,68 @@ function isVisible(el: Element): boolean {
 
 function computeUnitToMm(svg: SVGSVGElement): number {
   const vb = svg.viewBox?.baseVal;
-  const wAttr = svg.getAttribute('width');
-  const mm = wAttr && /mm$/.test(wAttr.trim()) ? parseFloat(wAttr) : null;
-  if (mm && vb && vb.width > 0) return mm / vb.width; // real-world units declared
-  return PX_TO_MM; // assume user units are CSS pixels
+  return svgUnitToMm(
+    svg.getAttribute('width'),
+    svg.getAttribute('height'),
+    vb && vb.width > 0 && vb.height > 0 ? { width: vb.width, height: vb.height } : null,
+  );
+}
+
+/** CSS absolute length units → millimetres (CSS Values 4 §6.2). */
+const UNIT_TO_MM: Record<string, number> = {
+  mm: 1,
+  cm: 10,
+  q: 0.25,
+  in: 25.4,
+  pt: 25.4 / 72,
+  pc: 25.4 / 6,
+  px: PX_TO_MM,
+  '': PX_TO_MM, // unitless <length> on the root element means CSS pixels
+};
+
+/** An SVG root `width`/`height` attribute split into its number and its unit's mm factor. */
+function parseSvgLength(attr: string | null | undefined): { value: number; factor: number } | null {
+  if (!attr) return null;
+  const m = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*([a-z%]*)\s*$/i.exec(attr);
+  if (!m) return null;
+  const factor = UNIT_TO_MM[m[2].toLowerCase()];
+  if (factor === undefined) return null; // %, em, ex, vw… have no fixed physical size
+  const value = parseFloat(m[1]);
+  return value > 0 && isFinite(value) ? { value, factor } : null;
+}
+
+/** Parse an SVG root `width`/`height` attribute into millimetres, or null if it has no absolute size. */
+export function parseSvgLengthMm(attr: string | null | undefined): number | null {
+  const len = parseSvgLength(attr);
+  return len ? len.value * len.factor : null;
+}
+
+/**
+ * Scale factor from SVG user units to millimetres.
+ *
+ * A pen plotter draws at physical scale, so an SVG that declares its real size
+ * (`width="210mm"` + `viewBox`) has to import at exactly that size. The user
+ * unit is `width / viewBox.width`; `height / viewBox.height` is used when only
+ * the height is sized. Any CSS absolute unit counts — Inkscape exports mm,
+ * Illustrator pt, and many tools cm or in.
+ *
+ * Without a viewBox the user unit *is* the declared unit (the spec's default
+ * viewBox is `0 0 width height`), so the factor is just that unit in mm.
+ * Without any absolute size the only defensible reading is CSS pixels.
+ */
+export function svgUnitToMm(
+  widthAttr: string | null | undefined,
+  heightAttr: string | null | undefined,
+  viewBox: { width: number; height: number } | null,
+): number {
+  const w = parseSvgLength(widthAttr);
+  const h = parseSvgLength(heightAttr);
+  if (viewBox) {
+    if (w) return (w.value * w.factor) / viewBox.width;
+    if (h) return (h.value * h.factor) / viewBox.height;
+    return PX_TO_MM;
+  }
+  return (w ?? h)?.factor ?? PX_TO_MM;
 }
 
 /** Split a shape into subpath `d` strings (one per pen-down stroke). */
