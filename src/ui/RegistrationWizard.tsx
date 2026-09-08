@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fitRegistration } from '../plot/register';
 import type { CalibrationPoint, Placement, Point } from '../plot/types';
-import { btn, btnPrimary, field } from './styles';
+import { btn, btnPrimary } from './styles';
+import { StepPicker } from './StepPicker';
 
 /**
  * RMS residual above which the fit is flagged. A sighted pen tip repeats to
@@ -144,17 +145,7 @@ export function RegistrationWizard(p: RegistrationWizardProps) {
                   {p.penPos ? `${p.penPos.x.toFixed(2)}, ${p.penPos.y.toFixed(2)}` : '—'}
                 </span>
               </span>
-              <label className="flex items-center gap-1">
-                Step (mm)
-                <input
-                  type="number"
-                  className={`${field} w-16`}
-                  value={p.jogStep}
-                  step={0.1}
-                  min={0.01}
-                  onChange={(e) => p.setJogStep(Math.max(0.01, Number(e.target.value) || 0.01))}
-                />
-              </label>
+              <StepPicker value={p.jogStep} onChange={p.setJogStep} />
             </div>
             <div className="mt-2 grid w-36 grid-cols-3 gap-1">
               <span />

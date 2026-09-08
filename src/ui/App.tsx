@@ -6,6 +6,7 @@ import { loadCalibration, saveCalibration } from './calibrationStore';
 import { loadSession, saveSession, type Session, type PersistedArt } from './sessionStore';
 import { flattenSvg, ABORTED } from '../plot/svg';
 import { RegistrationWizard } from './RegistrationWizard';
+import { StepPicker } from './StepPicker';
 import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { applyDetail } from '../plot/detail';
@@ -979,7 +980,7 @@ export function App() {
             </Section>
 
             <Section title="Jog">
-              <NumberField label="Step (mm)" value={jogStep} onChange={setJogStep} />
+              <StepPicker value={jogStep} onChange={setJogStep} />
               <div className="mt-2 grid w-44 grid-cols-3 gap-1 md:w-36">
                 <span />
                 <JogBtn label="↑" onPress={() => jogBy(0, -1)} disabled={!connected} />
