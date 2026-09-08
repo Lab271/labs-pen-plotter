@@ -1,4 +1,13 @@
-import type { Artwork, Point, Polyline } from './types';
+import type { Artwork, CalibrationPoint, Point, Polyline } from './types';
+import {
+  isPureBlue,
+  isReferenceId,
+  isReferenceLabel,
+  referencePoint,
+  selectReference,
+  type ReferenceCandidate,
+  type ReferenceGroup,
+} from './reference';
 
 const DRAWABLE = 'path,line,polyline,polygon,rect,circle,ellipse';
 const PX_TO_MM = 25.4 / 96; // CSS pixel → mm fallback when no real units are given
@@ -57,7 +66,16 @@ export async function flattenSvg(
     // Resolve each element's subpaths once (cheap) so we can report progress
     // against the total stroke count — one giant <path> dominates the work, so
     // per-element progress alone would stall at "stuck on one element".
-    const els = Array.from(svg.querySelectorAll<SVGGraphicsElement>(DRAWABLE));
+    const all = Array.from(svg.querySelectorAll<SVGGraphicsElement>(DRAWABLE));
+    // Reference geometry (registration crosshairs, "do not cut" layers) is never
+    // plotted: it is split off here, before sampling, and reduced to one point
+    // per group below. See ./reference.ts for the rules.
+    const isRef = selectReference(all.map(referenceCandidate));
+    const els = all.filter((_, i) => !isRef[i]);
+    const refGroups = collectReferenceGroups(
+      all.filter((_, i) => isRef[i]),
+      unitToMm,
+    );
     const work = els.map((el) => ({ el, subDs: shapeToSubpathDs(el) }));
     const total = work.reduce((n, w) => n + w.subDs.length, 0);
 
@@ -107,8 +125,17 @@ export async function flattenSvg(
     }
     opts.onProgress?.(total, total);
 
-    const { widthMm, heightMm } = normalizeToOrigin(polylines);
-    return { artwork: { polylines, widthMm, heightMm }, skipped };
+    const { widthMm, heightMm, offset } = normalizeToOrigin(polylines);
+    // Points share the strokes' frame: shift them by the same offset so placing
+    // the artwork places its marks. Groups with nothing measurable are dropped.
+    const calibrationPoints: CalibrationPoint[] = [];
+    for (const g of refGroups) {
+      const pt = referencePoint(g);
+      if (pt) calibrationPoints.push({ ...pt, x: pt.x - offset.x, y: pt.y - offset.y });
+    }
+    const artwork: Artwork = { polylines, widthMm, heightMm, pageOffset: offset };
+    if (calibrationPoints.length > 0) artwork.calibrationPoints = calibrationPoints;
+    return { artwork, skipped };
   } finally {
     document.body.removeChild(host);
   }
@@ -345,8 +372,102 @@ function toMm(p: Point, ctm: DOMMatrix | null, unitToMm: number): Point {
   return { x: x * unitToMm, y: y * unitToMm };
 }
 
-/** Shift all polylines so the bounding-box top-left is (0,0); return size in mm. */
-function normalizeToOrigin(polylines: Polyline[]): { widthMm: number; heightMm: number } {
+const INKSCAPE_NS = 'http://www.inkscape.org/namespaces/inkscape';
+
+/** The layer/group name an editor gave an element, if any (Inkscape, Illustrator). */
+function layerLabel(el: Element): string | null {
+  return (
+    el.getAttributeNS(INKSCAPE_NS, 'label') ??
+    el.getAttribute('inkscape:label') ??
+    el.getAttribute('data-name')
+  );
+}
+
+/** Nearest self-or-ancestor (below the root) matched by reference label or id. */
+function referenceMatch(el: Element): Element | null {
+  for (let n: Element | null = el; n && n.tagName.toLowerCase() !== 'svg'; n = n.parentElement) {
+    if (isReferenceId(n.getAttribute('id')) || isReferenceLabel(layerLabel(n))) return n;
+  }
+  return null;
+}
+
+/**
+ * The element that stands for "one registration mark" containing `el`. When the
+ * match is a whole layer (only the layer is labelled), the mark is the layer's
+ * direct child <g> that holds `el`, so a layer of several crosshair groups yields
+ * several points. When the match is the mark's own group (`cal-P1`), it is that.
+ */
+function referenceGroupOf(el: Element, match: Element): Element {
+  if (match === el) return el;
+  let n: Element = el;
+  while (n.parentElement && n.parentElement !== match) n = n.parentElement;
+  return n.tagName.toLowerCase() === 'g' ? n : match;
+}
+
+function referenceCandidate(el: SVGGraphicsElement): ReferenceCandidate {
+  const match = referenceMatch(el);
+  const cs = getComputedStyle(el);
+  const stroked = cs.stroke !== 'none' && cs.stroke !== '';
+  const blue = stroked ? isPureBlue(cs.stroke) : isPureBlue(cs.fill);
+  return { labelledGroup: match ? referenceGroupOf(el, match) : null, blue };
+}
+
+/**
+ * Gather reference elements into groups and measure them in page mm. Hidden
+ * elements (null CTM) contribute nothing, like everywhere else in the import.
+ */
+function collectReferenceGroups(els: SVGGraphicsElement[], unitToMm: number): ReferenceGroup[] {
+  const groups = new Map<Element, ReferenceGroup>();
+  let anon = 0;
+  for (const el of els) {
+    const ctm = el.getCTM();
+    if (!ctm || !isVisible(el)) continue;
+    const match = referenceMatch(el);
+    const key = match
+      ? referenceGroupOf(el, match)
+      : el.parentElement?.tagName.toLowerCase() === 'g'
+        ? el.parentElement
+        : el;
+    let g = groups.get(key);
+    if (!g) {
+      const name = key.getAttribute('id') || layerLabel(key) || `P${++anon}`;
+      g = { name, circles: [], bounds: null };
+      groups.set(key, g);
+    }
+    if (el.tagName.toLowerCase() === 'circle') {
+      g.circles.push(toMm({ x: num(el, 'cx'), y: num(el, 'cy') }, ctm, unitToMm));
+    }
+    const bb = el.getBBox();
+    const corners = [
+      { x: bb.x, y: bb.y },
+      { x: bb.x + bb.width, y: bb.y },
+      { x: bb.x, y: bb.y + bb.height },
+      { x: bb.x + bb.width, y: bb.y + bb.height },
+    ].map((c) => toMm(c, ctm, unitToMm));
+    for (const c of corners) {
+      g.bounds = g.bounds
+        ? {
+            minX: Math.min(g.bounds.minX, c.x),
+            minY: Math.min(g.bounds.minY, c.y),
+            maxX: Math.max(g.bounds.maxX, c.x),
+            maxY: Math.max(g.bounds.maxY, c.y),
+          }
+        : { minX: c.x, minY: c.y, maxX: c.x, maxY: c.y };
+    }
+  }
+  return Array.from(groups.values());
+}
+
+/**
+ * Shift all polylines so the bounding-box top-left is (0,0); return size in mm
+ * and the offset removed (page mm from the page origin to that corner), which
+ * is what page-true placement needs to put the artwork back where the file had it.
+ */
+function normalizeToOrigin(polylines: Polyline[]): {
+  widthMm: number;
+  heightMm: number;
+  offset: Point;
+} {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
@@ -358,13 +479,13 @@ function normalizeToOrigin(polylines: Polyline[]): { widthMm: number; heightMm: 
       maxX = Math.max(maxX, p.x);
       maxY = Math.max(maxY, p.y);
     }
-  if (!isFinite(minX)) return { widthMm: 0, heightMm: 0 };
+  if (!isFinite(minX)) return { widthMm: 0, heightMm: 0, offset: { x: 0, y: 0 } };
   for (const poly of polylines)
     for (const p of poly) {
       p.x -= minX;
       p.y -= minY;
     }
-  return { widthMm: maxX - minX, heightMm: maxY - minY };
+  return { widthMm: maxX - minX, heightMm: maxY - minY, offset: { x: minX, y: minY } };
 }
 
 function num(el: Element, attr: string): number {

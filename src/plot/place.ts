@@ -1,4 +1,4 @@
-import type { Placement, Polyline } from './types';
+import type { Placement, Point, Polyline } from './types';
 
 /**
  * Apply a placement (translate → rotate → scale) to artwork polylines, matching
@@ -92,6 +92,23 @@ export function anchorPlacement(W: number, H: number, pl: Placement): Placement 
  */
 export function actualSizePlacement(W: number, H: number, pl: Placement): Placement {
   return anchorPlacement(W, H, { ...pl, scale: 1 });
+}
+
+/**
+ * Placement that puts the artwork where its file puts it: 1:1, unrotated, with
+ * its bounding-box top-left at the page offset recorded at import. File
+ * coordinates then equal paper coordinates, which is what a cut registered
+ * against a matching print needs. Without a page offset (PNG, old sessions)
+ * this is actual size anchored to the corner.
+ */
+export function placeOnPage(
+  W: number,
+  H: number,
+  pageOffset: Point | undefined,
+  pl: Placement,
+): Placement {
+  if (!pageOffset) return actualSizePlacement(W, H, pl);
+  return { x: pageOffset.x, y: pageOffset.y, scale: 1, rotation: 0 };
 }
 
 export function bounds(polylines: Polyline[]): Bounds {

@@ -287,6 +287,10 @@ export class GatewayClient {
   async setWorkZero(): Promise<void> {
     await this.cmd({ cmd: 'setWorkZero' });
   }
+  /** Awaited so the UI can surface the daemon's refusal (not idle, streaming). */
+  async shiftWorkZero(dx: number, dy: number): Promise<void> {
+    await this.cmd({ cmd: 'shiftWorkZero', dx, dy });
+  }
   async goToWorkZero(): Promise<void> {
     await this.cmd({ cmd: 'goToWorkZero' });
   }

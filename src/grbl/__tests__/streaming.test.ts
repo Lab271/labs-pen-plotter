@@ -94,3 +94,71 @@ describe('abort on error', () => {
     expect(abortReason).toContain('error:20');
   });
 });
+
+describe('one program at a time', () => {
+  it('refuses a second program while the first is in flight, leaving the first intact', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(['G1 X1', 'G1 X2', 'G1 X3']);
+    await tick();
+    const sent = t.lineWrites.length;
+    expect(c.isStreaming).toBe(true);
+
+    expect(() => c.streamProgram(['G1 X9'])).toThrow(/already running/);
+    await tick();
+    expect(t.lineWrites.length).toBe(sent); // nothing from the refused program went out
+    expect(t.lineWrites.some((l) => l.includes('X9'))).toBe(false);
+  });
+
+  it('accepts a new program once the previous one completed', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(['G1 X1']);
+    await tick();
+    t.feed('ok\r\n');
+    await tick();
+    t.feed('<Idle|MPos:1.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>\r\n');
+    await tick();
+    expect(c.isStreaming).toBe(false);
+    expect(() => c.streamProgram(['G1 X2'])).not.toThrow();
+  });
+});
+
+describe('shiftWorkZero (registration correction)', () => {
+  const idle = '<Idle|MPos:10.000,20.000,0.000|FS:0,0|WCO:5.000,5.000,0.000>\r\n'; // wpos 5,15
+
+  it('declares the current position to be wpos + (dx, dy), Z untouched', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    t.feed(idle);
+    await tick();
+    const done = c.shiftWorkZero(1, 0.5); // resolves on GRBL's ok
+    await tick();
+    expect(t.lineWrites).toContain('G10 L20 P1 X6 Y15.5\n');
+    expect(t.lineWrites.some((l) => /G10.*Z/.test(l))).toBe(false);
+    t.feed('ok\r\n');
+    await done;
+  });
+
+  it('refuses when not idle, without a report, or while streaming', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    await expect(c.shiftWorkZero(1, 1)).rejects.toThrow(/No work position/);
+    t.feed('<Run|MPos:10.000,20.000,0.000|FS:500,0|WCO:5.000,5.000,0.000>\r\n');
+    await tick();
+    await expect(c.shiftWorkZero(1, 1)).rejects.toThrow(/not Idle/);
+    t.feed(idle);
+    await tick();
+    c.streamProgram(['G1 X1']);
+    await expect(c.shiftWorkZero(1, 1)).rejects.toThrow(/program is running/);
+    expect(t.lineWrites.some((l) => l.startsWith('G10'))).toBe(false);
+  });
+
+  it('rejects non-numeric offsets', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    t.feed(idle);
+    await tick();
+    await expect(c.shiftWorkZero(NaN, 0)).rejects.toThrow(/number/);
+  });
+});
