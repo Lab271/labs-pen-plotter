@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anchorPlacement, fitPlacement, transformedBox } from '../place';
+import { actualSizePlacement, anchorPlacement, fitPlacement, transformedBox } from '../place';
 
 describe('transformedBox', () => {
   it('returns the box unchanged at 0°, scale 1', () => {
@@ -43,5 +43,25 @@ describe('anchorPlacement', () => {
     const box = transformedBox(100, 60, 2, 90);
     expect(pl.x + box.minX).toBeCloseTo(0, 6);
     expect(pl.y + box.minY).toBeCloseTo(0, 6);
+  });
+});
+
+describe('actualSizePlacement', () => {
+  it('resets scale to 1 and anchors to the corner', () => {
+    const pl = actualSizePlacement(210, 297, { x: 40, y: 30, scale: 3.96, rotation: 0 });
+    expect(pl.scale).toBe(1);
+    expect(pl.rotation).toBe(0);
+    expect(pl.x).toBeCloseTo(0, 9);
+    expect(pl.y).toBeCloseTo(0, 9);
+  });
+
+  it('keeps the rotation and anchors the rotated box', () => {
+    const pl = actualSizePlacement(210, 297, { x: 0, y: 0, scale: 0.5, rotation: 90 });
+    expect(pl.scale).toBe(1);
+    expect(pl.rotation).toBe(90);
+    // Rotated 90° about the local origin, the 297-tall box swings to -X; anchoring
+    // shifts it back so the artwork's left edge is at x = 0.
+    expect(pl.x).toBeCloseTo(297, 9);
+    expect(pl.y).toBeCloseTo(0, 9);
   });
 });

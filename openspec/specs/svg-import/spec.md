@@ -51,6 +51,21 @@ The system SHALL determine the artwork's real-world size in millimeters using th
 - **WHEN** an SVG declares its dimensions (e.g. via `viewBox` + mm width/height)
 - **THEN** the imported artwork's default size in millimeters matches those dimensions
 
+#### Scenario: Any CSS absolute unit is honored
+
+- **WHEN** the root `width`/`height` is given in `mm`, `cm`, `Q`, `in`, `pt`, `pc` or `px`
+- **THEN** the artwork imports at that physical size — a `21cm`, `8.27in` or `595pt` A4 file all measure 210 mm wide
+
+#### Scenario: Only the height is sized
+
+- **WHEN** the root has a `viewBox` and an absolute `height` but a missing or relative (`%`) `width`
+- **THEN** the height is used to derive the physical scale
+
+#### Scenario: No absolute size is declared
+
+- **WHEN** the root has no `viewBox` or its width/height are missing, unitless, or relative
+- **THEN** user units are treated as CSS pixels (96 per inch), the browser's own default
+
 ### Requirement: Stroke-based scope
 
 The system SHALL treat strokes/outlines as the drawable geometry for this change. Fills (hatching), `<text>` outlining, and clipping are explicitly NOT converted and SHALL be ignored without error; the app SHOULD indicate when content was skipped.

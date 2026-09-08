@@ -81,6 +81,19 @@ export function anchorPlacement(W: number, H: number, pl: Placement): Placement 
   return { ...pl, x: -box.minX, y: -box.minY };
 }
 
+/**
+ * Placement that draws the artwork at its real-world size (scale 1) — the
+ * dimensions the SVG declared, or the PNG's resolution-derived size — keeping the
+ * current rotation and anchoring the rotated box to the top-left corner.
+ *
+ * Import defaults to fit-to-paper, which silently rescales a sized drawing; on
+ * an A0 bed an A4 file comes out ~4× too large. This is the operator's way back
+ * to 1:1 without dragging the transform handles to exactly 100%.
+ */
+export function actualSizePlacement(W: number, H: number, pl: Placement): Placement {
+  return anchorPlacement(W, H, { ...pl, scale: 1 });
+}
+
 export function bounds(polylines: Polyline[]): Bounds {
   let minX = Infinity,
     minY = Infinity,
