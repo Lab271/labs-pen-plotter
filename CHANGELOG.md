@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-09-08
+
+### Fixed
+
+- SVGs with a real-world size (`width="…mm"` + `viewBox`) imported 3.78× too
+  large. `getCTM()` maps geometry into the root viewport's *pixels*, which
+  includes the viewBox→viewport scaling; a 183 mm wide root is laid out at
+  96 dpi, so every coordinate arrived pre-multiplied by 96/25.4 before the
+  correct mm factor was applied. Pixel-sized exports have a scaling of 1, which
+  is why it went unnoticed. The root viewport is now made to coincide with the
+  viewBox before measuring. Present since SVG import shipped.
+- A root without a `viewBox` now reads its user units as CSS pixels, as the SVG
+  spec defines; 1.0.8 wrongly took them to be the declared width unit.
+
 ## [1.0.8] - 2026-09-08
 
 ### Added
