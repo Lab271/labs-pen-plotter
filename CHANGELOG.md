@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-08
+
+### Changed
+
+- Jog step is chosen with 0.1 / 1 / 5 / 10 mm buttons (the 3D-printer convention)
+  instead of a typed number, in the Jog panel and in the registration wizard.
+  Sighting a pen tip onto a crosshair goes 10 → 1 → 0.1 in turn; a button per
+  size beats retyping while watching the tip.
+
 ## [1.2.0] - 2026-09-08
 
 ### Changed
