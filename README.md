@@ -130,25 +130,30 @@ On macOS the daemon automatically runs `caffeinate -dimsu` for its lifetime so i
 | `PLOTTER_STATE` | `gateway/.plotter-state.json` | Where the remembered position is persisted |
 | `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes; add `http://localhost:5173` when driving a live daemon from the Vite dev server |
 
-## Registration check (calibration points)
+## Registration (cut to a printed sticker)
 
-Cut jobs are often registered against a pre-printed sheet. Put the registration
+Cut jobs are registered against a pre-printed sheet. Put the registration
 crosshairs on a layer named **calibration** (Inkscape label) or in groups with ids
 `cal-P1`, `cal-P2`, … — as a fallback, pure-blue (`#0000FF`) geometry counts when
 no such labels exist. That layer is never cut; import reports how many points it
 found. A `<circle>` in the group marks the exact target, otherwise the group's
 centre is used.
 
-1. Import the cut SVG and press **Place on page**: 1:1 at the file's own position,
-   so file millimetres equal paper millimetres, like the print.
-2. **Run calibration**: the pen touches down on each point, once per pass
-   (3 passes by default), then returns to work zero. A touch that lands inside the
-   printed dot disappears; a miss is a visible mark beside it. Marks that scatter
-   between passes point at lost steps or backlash.
-3. Read the miss off the sheet and type it in as **ΔX / ΔY** — where the marks
-   landed relative to the dots, X right, Y down, in mm — then **Apply correction**.
-   The work origin shifts by that amount without moving the gantry. Run again to
-   confirm; the marks should now fall inside the dots.
+Importing such a file opens the **registration wizard** (also: **Register…** in
+the Registration panel):
+
+1. Mount the sticker on the bed. It does not have to be square.
+2. For each point in turn, jog the pen tip onto the printed crosshair — arrow keys
+   or the on-screen arrows, with a step size; pen down/up to sight the tip — and
+   press **Set** to record the machine's work position.
+3. The software fits rotation and position (scale stays 1:1) of the file's points
+   onto your measurements and shows the angle, offset, per-point residual and the
+   scale the print implies. **Apply** moves and rotates the cut lines onto the
+   sticker. A residual over 0.3 mm or a print scale off by more than 1% is flagged;
+   go **Back** to re-measure.
+
+**Place on page** is the 1:1 placement at the file's own coordinates, for a sheet
+that is mounted exactly at work zero.
 
 ## Raspberry Pi deployment (Debian package)
 

@@ -540,32 +540,6 @@ export class GrblController {
     return this.enqueueLine(`G10 L20 P1 X${fmt(x)} Y${fmt(y)} Z${fmt(z)}`);
   }
 
-  /**
-   * Shift the work origin by a relative offset without moving: declare the
-   * current position to be `wpos + (dx, dy)` (G10 L20, Z untouched).
-   *
-   * Sign: dx/dy are *where the pen's mark landed relative to the printed
-   * target*, in page axes (X right, Y down). If a touch commanded at X=15
-   * landed 1 mm to the right of the dot, the spot the machine calls 15 is
-   * truly 16, so the current position is declared 1 mm further along and the
-   * origin moves 1 mm left; the next X=15 lands on the dot. Idle only — GRBL
-   * rejects G10 mid-motion and a stale wpos would shift by the wrong amount.
-   */
-  shiftWorkZero(dx: number, dy: number): Promise<void> {
-    if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
-      return Promise.reject(new Error('Correction must be a number of millimetres.'));
-    }
-    if (this.isStreaming) return Promise.reject(new Error('Refused: a program is running.'));
-    const st = this._lastStatus;
-    if (!st || !this._wcoKnown) {
-      return Promise.reject(new Error('No work position yet — is the plotter connected?'));
-    }
-    if (st.state !== 'Idle') return Promise.reject(new Error(`Machine is ${st.state}, not Idle.`));
-    // WPos = MPos − WCO; the report itself may omit WCO (GRBL sends it periodically).
-    const wpos = { x: st.mpos.x - this._lastWco.x, y: st.mpos.y - this._lastWco.y };
-    return this.enqueueLine(`G10 L20 P1 X${fmt(wpos.x + dx)} Y${fmt(wpos.y + dy)}`);
-  }
-
   /** Clear the work-coordinate offset so work position equals machine position. */
   resetWorkOffset(): Promise<void> {
     return this.enqueueLine('G10 L2 P1 X0 Y0 Z0');

@@ -35,8 +35,6 @@ export interface Session {
   /** Machine calibration (pen Z, feeds incl. draw speed). Shared across devices so
    * a plot started from any device uses the same setup. Optional for old sessions. */
   calibration?: Calibration;
-  /** Passes for the registration calibration run (optional for old sessions). */
-  calibrationPasses?: number;
 }
 
 const KEY = 'penplotter271.session';

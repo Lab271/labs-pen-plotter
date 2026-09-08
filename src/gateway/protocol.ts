@@ -39,9 +39,6 @@ export type ClientCommand =
   | { cmd: 'penUp' }
   | { cmd: 'penDown' }
   | { cmd: 'setWorkZero' }
-  // Shift the work origin by a relative offset (mm, page axes) without moving —
-  // the registration correction. Refused unless the machine is idle.
-  | { cmd: 'shiftWorkZero'; dx: number; dy: number }
   | { cmd: 'goToWorkZero' }
   | { cmd: 'motorsOff' }
   | { cmd: 'unlock' }

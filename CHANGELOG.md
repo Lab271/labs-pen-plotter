@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-08
+
+### Changed
+
+- **Registration is now a wizard.** Importing an SVG with calibration points opens
+  it: mount the sticker, jog the pen onto each printed point and Set, and the cut
+  lines are fitted — rotation and position, scale fixed at 1:1 — to where the
+  sticker really is. Residuals and the implied print scale are shown and flagged.
+  A sticker mounted a few degrees off can now be cut; before, only a translation
+  could be corrected, and only by moving the work origin.
+
+### Removed
+
+- The 1.1.0 **Run calibration** marking run and **Apply correction** work-origin
+  shift (and the `shiftWorkZero` daemon command). Superseded by the wizard: the
+  artwork moves, the work origin stays where the operator set it.
+
 ## [1.1.0] - 2026-09-08
 
 ### Added
