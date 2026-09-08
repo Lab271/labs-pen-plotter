@@ -72,10 +72,12 @@ describe('svgUnitToMm', () => {
     expect(svgUnitToMm(null, null, null)).toBeCloseTo(PX, 9);
   });
 
-  it('without a viewBox the user unit is the declared unit', () => {
-    expect(svgUnitToMm('210mm', '297mm', null)).toBeCloseTo(1, 9);
-    expect(svgUnitToMm('21cm', null, null)).toBeCloseTo(10, 9);
-    expect(svgUnitToMm(null, '11in', null)).toBeCloseTo(25.4, 9);
+  it('without a viewBox the user unit is a CSS pixel whatever the width says', () => {
+    // SVG 1.1 §7.2: no viewBox → initial user unit = 1 px. The mm width only
+    // sizes the viewport; the geometry inside is still in pixels.
+    expect(svgUnitToMm('210mm', '297mm', null)).toBeCloseTo(PX, 9);
+    expect(svgUnitToMm('21cm', null, null)).toBeCloseTo(PX, 9);
+    expect(svgUnitToMm(null, '11in', null)).toBeCloseTo(PX, 9);
     expect(svgUnitToMm('800', '600', null)).toBeCloseTo(PX, 9);
   });
 

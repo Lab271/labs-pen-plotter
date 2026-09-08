@@ -63,8 +63,18 @@ The system SHALL determine the artwork's real-world size in millimeters using th
 
 #### Scenario: No absolute size is declared
 
-- **WHEN** the root has no `viewBox` or its width/height are missing, unitless, or relative
+- **WHEN** the root has a `viewBox` but its width/height are missing, unitless, or relative
 - **THEN** user units are treated as CSS pixels (96 per inch), the browser's own default
+
+#### Scenario: No viewBox
+
+- **WHEN** the root has no `viewBox`, whatever unit its width/height carry
+- **THEN** user units are CSS pixels, as the SVG specification defines the initial user coordinate system
+
+#### Scenario: Real-size geometry is not inflated by the viewport
+
+- **WHEN** an SVG declares `width="183.87mm" viewBox="0 0 183.87 56.38"` and draws a 173.87 mm wide shape
+- **THEN** the imported artwork measures 173.87 mm wide — not 657 mm, the browser's 96 dpi viewport-pixel rendering of the same geometry
 
 ### Requirement: Stroke-based scope
 

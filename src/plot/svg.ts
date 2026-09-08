@@ -49,6 +49,7 @@ export async function flattenSvg(
 
   try {
     const unitToMm = computeUnitToMm(svg);
+    neutralizeRootViewport(svg);
     const tolUser = Math.max(toleranceMm / unitToMm, 1e-4);
     const polylines: Polyline[] = [];
     let skipped = 0;
@@ -126,6 +127,30 @@ function isVisible(el: Element): boolean {
   return true;
 }
 
+/**
+ * Make the root's viewport coincide with its viewBox, so getCTM() yields root
+ * *user units* rather than viewport pixels.
+ *
+ * getCTM() maps an element to the outermost viewport's coordinate system, and
+ * that includes the viewBox→viewport scaling of the root <svg>. For a root
+ * declared `width="210mm" viewBox="0 0 210 297"` the browser lays the viewport
+ * out at 96 dpi, so every coordinate arrives already multiplied by 3.78 — and
+ * a correct mm factor on top of that made real-size files import 3.78× too
+ * large. A px-sized root has a scaling of 1, which is why the bug hid behind
+ * pixel exports. Setting width/height to the viewBox's own extent (unitless =
+ * px) makes that transform the identity; equal aspect ratios mean
+ * preserveAspectRatio adds no offset either. Nested <svg> viewports are left
+ * alone — those are part of the artwork's geometry in root user units.
+ *
+ * Must run after computeUnitToMm, which reads the original width/height.
+ */
+function neutralizeRootViewport(svg: SVGSVGElement): void {
+  const vb = svg.viewBox?.baseVal;
+  if (!vb || vb.width <= 0 || vb.height <= 0) return; // no viewBox: user unit is already 1 px
+  svg.setAttribute('width', String(vb.width));
+  svg.setAttribute('height', String(vb.height));
+}
+
 function computeUnitToMm(svg: SVGSVGElement): number {
   const vb = svg.viewBox?.baseVal;
   return svgUnitToMm(
@@ -173,23 +198,22 @@ export function parseSvgLengthMm(attr: string | null | undefined): number | null
  * the height is sized. Any CSS absolute unit counts — Inkscape exports mm,
  * Illustrator pt, and many tools cm or in.
  *
- * Without a viewBox the user unit *is* the declared unit (the spec's default
- * viewBox is `0 0 width height`), so the factor is just that unit in mm.
- * Without any absolute size the only defensible reading is CSS pixels.
+ * Without a viewBox the user unit is one CSS pixel regardless of what unit the
+ * width is declared in — a `<rect width="100">` inside `width="210mm"` is 100 px,
+ * not 100 mm — so the declared size does not enter into it. Without any absolute
+ * size at all, CSS pixels are likewise the only defensible reading.
  */
 export function svgUnitToMm(
   widthAttr: string | null | undefined,
   heightAttr: string | null | undefined,
   viewBox: { width: number; height: number } | null,
 ): number {
+  if (!viewBox) return PX_TO_MM;
   const w = parseSvgLength(widthAttr);
+  if (w) return (w.value * w.factor) / viewBox.width;
   const h = parseSvgLength(heightAttr);
-  if (viewBox) {
-    if (w) return (w.value * w.factor) / viewBox.width;
-    if (h) return (h.value * h.factor) / viewBox.height;
-    return PX_TO_MM;
-  }
-  return (w ?? h)?.factor ?? PX_TO_MM;
+  if (h) return (h.value * h.factor) / viewBox.height;
+  return PX_TO_MM;
 }
 
 /** Split a shape into subpath `d` strings (one per pen-down stroke). */
