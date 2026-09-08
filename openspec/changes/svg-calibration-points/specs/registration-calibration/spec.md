@@ -1,57 +1,71 @@
 ## Purpose
 
-Verify, before a sheet is cut, that the machine's work origin lands the pen on the registration marks printed on the sheet, by touching each calibration point several times and then correcting the work origin by the observed miss.
+Register a cut to a sticker as it actually sits on the bed: the operator jogs the pen onto each printed calibration point, and the software fits the artwork's position and rotation to those measurements so the cut lines follow the print.
 
 ## ADDED Requirements
 
-### Requirement: Calibration run over the artwork's points
+### Requirement: Registration wizard opens for artwork with calibration points
 
-The system SHALL let the operator run a calibration program for the selected artwork when it carries calibration points. The program SHALL, with the pen up, travel to each point in order, lower the pen using the calibrated pen-down Z and settle dwell, raise it, and continue to the next point; it SHALL repeat this for the configured number of passes (default 3, minimum 1) and finish pen-up at the work origin. Points SHALL be targeted at their placed paper coordinates, so the run tests the same placement the cut will use. The run SHALL use the same streaming path, feeds and pen model as a plot.
+The system SHALL open a step-by-step registration wizard automatically when an SVG with two or more calibration points is imported, and SHALL let the operator reopen it for the selected artwork at any time. The wizard SHALL require a connected, idle machine to record points, and SHALL be cancellable at any step without changing the artwork.
 
-#### Scenario: Three points, three passes
+#### Scenario: Import opens the wizard
 
-- **WHEN** the operator runs calibration on an artwork with points P1, P2, P3 and 3 passes
-- **THEN** the machine touches P1, P2, P3, P1, P2, P3, P1, P2, P3 in that order, each touch a pen-down/dwell/pen-up at the point's paper coordinate, then returns to work zero pen-up
+- **WHEN** the operator imports an SVG whose reference layer yields three calibration points
+- **THEN** the wizard opens on its first step, naming the artwork and the number of points
 
-#### Scenario: On-target touch is invisible, a miss is visible
+#### Scenario: Reopen later
 
-- **WHEN** the work origin is correct and the sheet's printed dots are 0.4 mm radius
-- **THEN** the pen marks fall inside the printed dots; when the origin is off, the marks sit visibly beside the dots by the same offset
+- **WHEN** the operator selects an artwork with calibration points and chooses Register
+- **THEN** the wizard opens for that artwork, starting from the first step
 
-#### Scenario: Repeated passes reveal drift
+#### Scenario: Cancel
 
-- **WHEN** the machine loses steps or has backlash between passes
-- **THEN** successive marks at the same point do not coincide, which a single pass could not show
+- **WHEN** the operator cancels at any step
+- **THEN** the wizard closes and the artwork's placement is unchanged
 
-#### Scenario: No calibration points
+### Requirement: Guided measurement of each point
 
-- **WHEN** the selected artwork has no calibration points
-- **THEN** the calibration run is unavailable and the UI says why
+The wizard SHALL first instruct the operator to mount the sticker, then for each calibration point in file order SHALL name the point and its page coordinate, show the live work position, provide jog controls (arrows with a step size, pen up/down to sight the tip), and a Set action that records the current work position for that point. The operator SHALL be able to go back to re-measure a point.
 
-### Requirement: Work-zero correction from the observed miss
+#### Scenario: Jog and set
 
-After a run, the system SHALL let the operator enter the observed offset of the marks from the printed dots, in millimetres along the page axes (positive X to the right, positive Y down the page), and apply it so that the work origin moves by that amount and a subsequent run lands on the dots. The correction SHALL be applied through the work-coordinate offset (no motion), only while the machine is idle, and SHALL be reflected in the displayed work position immediately.
+- **WHEN** the wizard shows "Jog to cal-P1 (page 15, 15)" and the operator jogs the pen onto the printed crosshair and presses Set
+- **THEN** the current work position is recorded for cal-P1 and the wizard advances to cal-P2
 
-#### Scenario: Marks land right and below the dots
+#### Scenario: Re-measure
 
-- **WHEN** every mark sits 1.0 mm to the right and 0.5 mm below its printed dot and the operator applies a correction of `+1.0, +0.5`
-- **THEN** the work origin shifts so that the next run's marks fall on the dots, and the displayed work position of the unmoved pen changes by exactly that offset
+- **WHEN** the operator goes back from cal-P3 to cal-P2
+- **THEN** cal-P2's previous measurement is discarded when Set is pressed again
 
-#### Scenario: Correction refused while moving
+#### Scenario: Set refused without a position
 
-- **WHEN** the operator tries to apply a correction while a program is streaming or the machine is not idle
-- **THEN** the correction is refused with a message and the work origin is unchanged
+- **WHEN** the machine is disconnected or has not reported a position
+- **THEN** Set is unavailable and the wizard says why
 
-### Requirement: Calibration controls respect the running machine
+### Requirement: Fit and apply the placement
 
-The calibration run and the correction SHALL be unavailable while any program is streaming, and the run SHALL be stoppable with the same stop control as a plot.
+After the last point, the system SHALL fit a rigid transform — rotation and translation, scale fixed at 1:1 — of the artwork's calibration points onto the recorded work positions by least squares, show the resulting rotation and offset, the per-point residual, and the scale the measurements imply, and on Apply SHALL set the artwork's placement to the fit so the cut lines coincide with the sticker. The wizard SHALL warn when the root-mean-square residual exceeds 0.3 mm or the implied scale deviates from 1 by more than 1%, but SHALL still allow applying. Because least squares shares a single point's error across all points, the warning is on the RMS, not on any one residual.
 
-#### Scenario: Disabled during a plot
+#### Scenario: Rotated sticker
 
-- **WHEN** a plot is running
-- **THEN** the calibration Run and Apply controls are disabled
+- **WHEN** the sticker is mounted 3° clockwise and 20 mm from the corner and the three points are measured accurately
+- **THEN** the fitted placement has rotation ≈ 3° and puts every calibration point within 0.2 mm of its measurement, and after Apply the cut lines on the canvas overlay the sticker's true position
 
-#### Scenario: Stop mid-run
+#### Scenario: Poor fit is flagged
 
-- **WHEN** the operator presses Stop during a calibration run
-- **THEN** the run aborts like a plot, pen up, and the machine returns to a safe idle state
+- **WHEN** one point was set 1.5 mm off the crosshair
+- **THEN** every residual is non-zero, the RMS warning appears, and the operator can go back to re-measure or apply anyway
+
+#### Scenario: Scale is not corrected
+
+- **WHEN** the measurements imply the sticker was printed 2% large
+- **THEN** the placement keeps scale 1 and the wizard warns about the implied scale rather than stretching the cut
+
+### Requirement: Wizard respects the running machine
+
+The wizard's jog and Set actions SHALL be unavailable while a program is streaming.
+
+#### Scenario: Opened during a plot
+
+- **WHEN** a plot is running and the wizard is opened
+- **THEN** its jog and Set controls are disabled until the plot finishes

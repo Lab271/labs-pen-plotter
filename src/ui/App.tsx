@@ -5,7 +5,8 @@ import { StatusReport, type GrblSettings } from '../grbl/types';
 import { loadCalibration, saveCalibration } from './calibrationStore';
 import { loadSession, saveSession, type Session, type PersistedArt } from './sessionStore';
 import { flattenSvg, ABORTED } from '../plot/svg';
-import { clampPasses, DEFAULT_PASSES, generateCalibrationGcode } from '../plot/calibration';
+import { RegistrationWizard } from './RegistrationWizard';
+import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { applyDetail } from '../plot/detail';
 import { estimatePlotTime, formatDuration, generateGcode } from '../plot/gcode';
@@ -166,12 +167,9 @@ export function App() {
   const [paperIdx, setPaperIdx] = useState(restored?.paperIdx ?? 2); // A2
   const [orientation, setOrientation] = useState<Orientation>(restored?.orientation ?? 'landscape');
   const [useCustomPaper, setUseCustomPaper] = useState(restored?.useCustomPaper ?? false);
-  // Registration calibration: passes over the points, and the miss the operator read off the sheet.
-  const [calPasses, setCalPasses] = useState(
-    clampPasses(restored?.calibrationPasses ?? DEFAULT_PASSES),
-  );
-  const [calDx, setCalDx] = useState(0);
-  const [calDy, setCalDy] = useState(0);
+  // Registration wizard: the artwork it is open for (opens itself after an SVG
+  // import that carries calibration points; reopened with Register…).
+  const [wizardFor, setWizardFor] = useState<string | null>(null);
   const [customPaper, setCustomPaper] = useState(
     restored?.customPaper ?? { widthMm: 600, heightMm: 400 },
   );
@@ -318,11 +316,10 @@ export function App() {
       useCustomPaper,
       customPaper,
       calibration: cal,
-      calibrationPasses: calPasses,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
-  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, cal, calPasses]);
+  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, cal]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)
@@ -431,6 +428,7 @@ export function App() {
       },
     ]);
     setSelectedId(id);
+    return id;
   }
 
   async function onLoadSvg(e: React.ChangeEvent<HTMLInputElement>) {
@@ -455,9 +453,10 @@ export function App() {
         );
         return;
       }
-      addArtwork(file.name, 'svg', art, controls, { kind: 'svg', text });
+      const id = addArtwork(file.name, 'svg', art, controls, { kind: 'svg', text });
       const notes: string[] = [];
       const nCal = art.calibrationPoints?.length ?? 0;
+      if (nCal >= 2) setWizardFor(id); // registration is what a reference layer is for
       if (nCal > 0)
         notes.push(`${nCal} calibration point(s) found — reference layer excluded from the cut.`);
       if (skipped > 0) notes.push(`${skipped} element(s) skipped (hidden layers, fills, or text).`);
@@ -676,33 +675,6 @@ export function App() {
     };
   }
 
-  /** The selected artwork's calibration points at their placed paper coordinates. */
-  const selectedCalPoints: Point[] = useMemo(() => {
-    if (!selectedItem?.calibrationPoints?.length) return [];
-    const [placed] = placePolylines([selectedItem.calibrationPoints], selectedItem.placement);
-    return placed;
-  }, [selectedItem]);
-
-  /**
-   * Registration check: touch each calibration point `calPasses` times through
-   * the normal plot path, so Pause/Stop/progress apply and a second program is
-   * refused. Targets are the *placed* points — the same placement the cut uses.
-   */
-  function onRunCalibration() {
-    const c = ctrl();
-    if (!c || selectedCalPoints.length === 0) return;
-    const b = bounds([selectedCalPoints]);
-    if (b.minX < -0.01 || b.minY < -0.01 || b.maxX > bedW + 0.01 || b.maxY > bedH + 0.01) {
-      setAlert('A calibration point is outside the work area — move the artwork first.');
-      return;
-    }
-    const gc = generateCalibrationGcode(selectedCalPoints, calPasses, penOptions());
-    startProgram(
-      gc,
-      `calibration start — ${selectedCalPoints.length} point(s) × ${calPasses} pass(es)`,
-    );
-  }
-
   function startProgram(gc: string[], logLine: string) {
     const c = ctrl();
     if (!c) return;
@@ -721,18 +693,6 @@ export function App() {
     setAlert('');
     pushLog('SYS', logLine);
     c.streamProgram(gc);
-  }
-
-  /** Apply the miss the operator read off the sheet as a work-origin shift (no motion). */
-  async function onApplyCorrection() {
-    if (!(calDx || calDy)) return;
-    await run(async () => {
-      await ctrl()!.shiftWorkZero(calDx, calDy);
-      pushLog('SYS', `work zero shifted by ${calDx}, ${calDy} mm (registration correction)`);
-      setCalDx(0);
-      setCalDy(0);
-      setAlert(`Work origin corrected by ${calDx}, ${calDy} mm. Run calibration again to confirm.`);
-    });
   }
 
   const setCalField = (k: keyof Calibration) => (v: number) => setCal((p) => ({ ...p, [k]: v }));
@@ -754,11 +714,36 @@ export function App() {
       ? `${formatDuration(totalEstSec)} total`
       : '';
 
+  const wizardItem = wizardFor ? (items.find((i) => i.id === wizardFor) ?? null) : null;
   const updateAvailable = isNewerVersion(latestVersion, appVersion);
   const updating = updateStatus?.state === 'downloading' || updateStatus?.state === 'installing';
 
   return (
     <div className="flex h-dvh flex-col bg-slate-100 text-slate-800">
+      {wizardItem && (
+        <RegistrationWizard
+          artName={wizardItem.name}
+          points={wizardItem.calibrationPoints ?? []}
+          pageOffset={wizardItem.pageOffset}
+          penPos={penPos}
+          connected={connected}
+          busy={plotting || !!progress}
+          jogStep={jogStep}
+          setJogStep={setJogStep}
+          onJog={jogBy}
+          onPenUp={() => void ctrl()?.penUp()}
+          onPenDown={() => void ctrl()?.penDown()}
+          onApply={(pl) => {
+            updatePlacement(wizardItem.id, pl);
+            setSelectedId(wizardItem.id);
+            setWizardFor(null);
+            setAlert(
+              `Registered ${wizardItem.name}: rotation ${pl.rotation.toFixed(2)}°, offset ${pl.x.toFixed(1)}, ${pl.y.toFixed(1)} mm.`,
+            );
+          }}
+          onCancel={() => setWizardFor(null)}
+        />
+      )}
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-4 py-2 shadow-sm md:gap-3">
         <Logo className="h-4 w-auto" />
@@ -1056,8 +1041,8 @@ export function App() {
               </div>
             </Section>
 
-            <Section title="Registration check">
-              {selectedCalPoints.length === 0 ? (
+            <Section title="Registration">
+              {!selectedItem?.calibrationPoints?.length ? (
                 <p className="text-xs text-slate-500">
                   {selectedItem
                     ? 'No calibration points in this artwork. Put crosshairs on a layer named “calibration” (or ids cal-…), or draw them pure blue.'
@@ -1066,41 +1051,23 @@ export function App() {
               ) : (
                 <>
                   <ul className="mb-1.5 text-xs text-slate-600">
-                    {selectedItem!.calibrationPoints!.map((p, i) => (
+                    {selectedItem.calibrationPoints.map((p, i) => (
                       <li key={p.name + i} className="flex justify-between">
                         <span>{p.name}</span>
                         <span className="tabular-nums">
-                          {selectedCalPoints[i].x.toFixed(2)}, {selectedCalPoints[i].y.toFixed(2)}{' '}
-                          mm
+                          page {(p.x + (selectedItem.pageOffset?.x ?? 0)).toFixed(1)},{' '}
+                          {(p.y + (selectedItem.pageOffset?.y ?? 0)).toFixed(1)} mm
                         </span>
                       </li>
                     ))}
                   </ul>
-                  <NumberField
-                    label="Passes"
-                    value={calPasses}
-                    onChange={(v) => setCalPasses(clampPasses(v))}
-                  />
                   <button
-                    className={`${btnPrimary} mt-1 w-full`}
-                    disabled={!connected || plotting || !!progress}
-                    onClick={onRunCalibration}
-                    title="Touch the pen down on each point, repeated per pass. Marks inside the printed dots = registered."
+                    className={`${btnPrimary} w-full`}
+                    disabled={plotting}
+                    onClick={() => setWizardFor(selectedItem.id)}
+                    title="Jog the pen onto each printed point; the cut lines are then fitted to where the sticker really is"
                   >
-                    Run calibration
-                  </button>
-                  <p className="mt-2 mb-1 text-xs text-slate-500">
-                    Where did the marks land, relative to the printed dots? X right, Y down, mm.
-                  </p>
-                  <NumberField label="ΔX (mm)" value={calDx} step={0.1} onChange={setCalDx} />
-                  <NumberField label="ΔY (mm)" value={calDy} step={0.1} onChange={setCalDy} />
-                  <button
-                    className={`${btn} w-full`}
-                    disabled={!connected || plotting || !!progress || !(calDx || calDy)}
-                    onClick={onApplyCorrection}
-                    title="Shift the work origin by this offset without moving, so the next run lands on the dots"
-                  >
-                    Apply correction
+                    Register…
                   </button>
                 </>
               )}
@@ -1329,15 +1296,10 @@ export function App() {
 
 // ---- small presentational helpers ----
 
-const btn =
-  'rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40';
 // Transport controls (Pause/Resume/Stop): large touch targets on phones,
 // compact on desktop (md:) where they match the regular `btn` size.
 const transportBtn =
   'rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40 md:px-2 md:py-1 md:text-xs';
-const btnPrimary =
-  'rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40';
-const field = 'rounded border border-slate-300 px-1.5 py-1 text-xs';
 
 function Section(props: { title: string; children: React.ReactNode; className?: string }) {
   return (
