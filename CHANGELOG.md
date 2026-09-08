@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-08
+
+### Added
+
+- **Registration check.** SVG layers labelled "calibration"/"reference", groups
+  with `cal-` ids, or (as a fallback) pure-blue geometry are recognised as
+  registration marks: excluded from the cut, reported on import, and reduced to
+  one calibration point each. A **Run calibration** program touches the pen down
+  on every point for a configurable number of passes, so a miss shows as a mark
+  beside the printed dot and drift shows as scatter. **Apply correction** shifts
+  the work origin by the miss the operator reads off the sheet, without moving.
+- **Place on page** placement: 1:1 at the position the file gives the artwork, so
+  file millimetres equal paper millimetres for cuts registered against a print.
+  Import now remembers the artwork's page offset for this.
+
+### Fixed
+
+- The daemon refuses to start a program while one is streaming or held. Before,
+  a second `plot` interleaved line by line into the running one.
+
 ## [1.0.9] - 2026-09-08
 
 ### Fixed

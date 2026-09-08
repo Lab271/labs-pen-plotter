@@ -1,4 +1,4 @@
-import type { Placement, Polyline } from '../plot/types';
+import type { CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import type { ArtControls } from '../plot/controls';
 import type { Calibration } from '../grbl/settings';
 
@@ -14,6 +14,9 @@ export interface PersistedArt {
   placement: Placement;
   /** Per-artwork drawing controls (optional for sessions saved before they existed). */
   controls?: ArtControls;
+  /** Page position and registration marks from import (optional: PNGs, old sessions). */
+  pageOffset?: Point;
+  calibrationPoints?: CalibrationPoint[];
 }
 
 /**
@@ -32,6 +35,8 @@ export interface Session {
   /** Machine calibration (pen Z, feeds incl. draw speed). Shared across devices so
    * a plot started from any device uses the same setup. Optional for old sessions. */
   calibration?: Calibration;
+  /** Passes for the registration calibration run (optional for old sessions). */
+  calibrationPasses?: number;
 }
 
 const KEY = 'penplotter271.session';

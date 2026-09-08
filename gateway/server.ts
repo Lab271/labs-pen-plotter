@@ -420,6 +420,10 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
         posReady = true;
         persistState();
         break;
+      case 'shiftWorkZero':
+        await ctrl.shiftWorkZero(msg.dx, msg.dy);
+        persistState();
+        break;
       case 'goToWorkZero':
         await ctrl.goToWorkZero();
         break;

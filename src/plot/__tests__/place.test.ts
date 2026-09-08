@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { actualSizePlacement, anchorPlacement, fitPlacement, transformedBox } from '../place';
+import {
+  actualSizePlacement,
+  anchorPlacement,
+  fitPlacement,
+  transformedBox,
+  placeOnPage,
+  placePolylines,
+} from '../place';
 
 describe('transformedBox', () => {
   it('returns the box unchanged at 0°, scale 1', () => {
@@ -63,5 +70,35 @@ describe('actualSizePlacement', () => {
     // shifts it back so the artwork's left edge is at x = 0.
     expect(pl.x).toBeCloseTo(297, 9);
     expect(pl.y).toBeCloseTo(0, 9);
+  });
+});
+
+describe('placeOnPage', () => {
+  it('puts the artwork at its page offset, 1:1, unrotated', () => {
+    const pl = placeOnPage(128, 116, { x: 30, y: 45 }, { x: 0, y: 0, scale: 2.4, rotation: 90 });
+    expect(pl).toEqual({ x: 30, y: 45, scale: 1, rotation: 0 });
+  });
+
+  it('degrades to actual size at the corner without a page offset (PNG, old sessions)', () => {
+    const pl = placeOnPage(100, 50, undefined, { x: 7, y: 7, scale: 3, rotation: 0 });
+    expect(pl).toEqual(actualSizePlacement(100, 50, { x: 7, y: 7, scale: 3, rotation: 0 }));
+  });
+
+  it('a calibration point placed with the artwork lands at its page coordinate', () => {
+    // File: cut geometry bbox starts at page (30,45); crosshair dot at page (15,15)
+    // → in the artwork frame it is (-15,-30).
+    const pt = { x: -15, y: -30 };
+    const pl = placeOnPage(128, 116, { x: 30, y: 45 }, { x: 0, y: 0, scale: 1, rotation: 0 });
+    const [placed] = placePolylines([[pt]], pl);
+    expect(placed[0].x).toBeCloseTo(15, 9);
+    expect(placed[0].y).toBeCloseTo(15, 9);
+  });
+
+  it('points rotate with the artwork like strokes do', () => {
+    const pt = { x: 10, y: 0 };
+    const [placed] = placePolylines([[pt]], { x: 0, y: 0, scale: 1, rotation: 90 });
+    // 90° clockwise on a Y-down page: +X turns into +Y.
+    expect(placed[0].x).toBeCloseTo(0, 9);
+    expect(placed[0].y).toBeCloseTo(10, 9);
   });
 });

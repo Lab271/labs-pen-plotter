@@ -320,8 +320,24 @@ export class GrblController {
 
   // ---- streaming ----
 
-  /** Stream a G-code program. Completion/abort is reported via events. */
+  /**
+   * True while a program is streaming or held. A stopped (aborted) program no
+   * longer counts, so Stop → Plot works without waiting for the Idle settle.
+   */
+  get isStreaming(): boolean {
+    return (this.stream !== null && !this.stream.aborted) || this.paused;
+  }
+
+  /**
+   * Stream a G-code program. Completion/abort is reported via events.
+   *
+   * Refuses while another program is streaming: there is no in-progress guard
+   * anywhere else, and a second program would interleave into the running
+   * queue line by line — the pen would draw a merge of both. The UI disables
+   * Plot/Run while streaming; this is the backstop for every other caller.
+   */
   streamProgram(rawLines: string[]): void {
+    if (this.isStreaming) throw new Error('A program is already running — stop it first.');
     const program = rawLines.map((l) => stripComment(l)).filter((l) => l.length > 0);
     this.paused = false;
     // Start every plot at 100% feed so speed is predictable (override persists in
@@ -522,6 +538,32 @@ export class GrblController {
    */
   setWorkPosition(x: number, y: number, z: number): Promise<void> {
     return this.enqueueLine(`G10 L20 P1 X${fmt(x)} Y${fmt(y)} Z${fmt(z)}`);
+  }
+
+  /**
+   * Shift the work origin by a relative offset without moving: declare the
+   * current position to be `wpos + (dx, dy)` (G10 L20, Z untouched).
+   *
+   * Sign: dx/dy are *where the pen's mark landed relative to the printed
+   * target*, in page axes (X right, Y down). If a touch commanded at X=15
+   * landed 1 mm to the right of the dot, the spot the machine calls 15 is
+   * truly 16, so the current position is declared 1 mm further along and the
+   * origin moves 1 mm left; the next X=15 lands on the dot. Idle only — GRBL
+   * rejects G10 mid-motion and a stale wpos would shift by the wrong amount.
+   */
+  shiftWorkZero(dx: number, dy: number): Promise<void> {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+      return Promise.reject(new Error('Correction must be a number of millimetres.'));
+    }
+    if (this.isStreaming) return Promise.reject(new Error('Refused: a program is running.'));
+    const st = this._lastStatus;
+    if (!st || !this._wcoKnown) {
+      return Promise.reject(new Error('No work position yet — is the plotter connected?'));
+    }
+    if (st.state !== 'Idle') return Promise.reject(new Error(`Machine is ${st.state}, not Idle.`));
+    // WPos = MPos − WCO; the report itself may omit WCO (GRBL sends it periodically).
+    const wpos = { x: st.mpos.x - this._lastWco.x, y: st.mpos.y - this._lastWco.y };
+    return this.enqueueLine(`G10 L20 P1 X${fmt(wpos.x + dx)} Y${fmt(wpos.y + dy)}`);
   }
 
   /** Clear the work-coordinate offset so work position equals machine position. */

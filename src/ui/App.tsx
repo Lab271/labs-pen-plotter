@@ -5,6 +5,7 @@ import { StatusReport, type GrblSettings } from '../grbl/types';
 import { loadCalibration, saveCalibration } from './calibrationStore';
 import { loadSession, saveSession, type Session, type PersistedArt } from './sessionStore';
 import { flattenSvg, ABORTED } from '../plot/svg';
+import { clampPasses, DEFAULT_PASSES, generateCalibrationGcode } from '../plot/calibration';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { applyDetail } from '../plot/detail';
 import { estimatePlotTime, formatDuration, generateGcode } from '../plot/gcode';
@@ -13,10 +14,11 @@ import {
   anchorPlacement,
   bounds,
   fitPlacement,
+  placeOnPage,
   placePolylines,
 } from '../plot/place';
 import { PAPER_SIZES, paperDims } from '../plot/paper';
-import type { Artwork, Placement, Polyline } from '../plot/types';
+import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
   DEFAULT_CONTROLS,
@@ -70,6 +72,10 @@ interface PlacedArt {
   placement: Placement;
   /** Per-artwork drawing controls. */
   controls: ArtControls;
+  /** Where the file put the artwork on its page (SVG only) — for Place on page. */
+  pageOffset?: Point;
+  /** Registration marks from the file's reference layer, artwork frame (never plotted). */
+  calibrationPoints?: CalibrationPoint[];
 }
 
 /** Fill kind/controls defaults so sessions saved before they existed still load. */
@@ -160,6 +166,12 @@ export function App() {
   const [paperIdx, setPaperIdx] = useState(restored?.paperIdx ?? 2); // A2
   const [orientation, setOrientation] = useState<Orientation>(restored?.orientation ?? 'landscape');
   const [useCustomPaper, setUseCustomPaper] = useState(restored?.useCustomPaper ?? false);
+  // Registration calibration: passes over the points, and the miss the operator read off the sheet.
+  const [calPasses, setCalPasses] = useState(
+    clampPasses(restored?.calibrationPasses ?? DEFAULT_PASSES),
+  );
+  const [calDx, setCalDx] = useState(0);
+  const [calDy, setCalDy] = useState(0);
   const [customPaper, setCustomPaper] = useState(
     restored?.customPaper ?? { widthMm: 600, heightMm: 400 },
   );
@@ -306,10 +318,11 @@ export function App() {
       useCustomPaper,
       customPaper,
       calibration: cal,
+      calibrationPasses: calPasses,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
-  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, cal]);
+  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, cal, calPasses]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)
@@ -413,6 +426,8 @@ export function App() {
         heightMm: art.heightMm,
         placement,
         controls,
+        pageOffset: art.pageOffset,
+        calibrationPoints: art.calibrationPoints,
       },
     ]);
     setSelectedId(id);
@@ -434,17 +449,19 @@ export function App() {
       });
       if (art.polylines.length === 0) {
         setAlert(
-          'No plottable stroke geometry in that SVG (it is likely fill-based). ' +
+          'No plottable stroke geometry in that SVG (it is likely fill-based, or everything ' +
+            'is on a calibration/reference layer or pure blue, which is never cut). ' +
             'Export it as a PNG and use “Upload PNG” instead.',
         );
         return;
       }
       addArtwork(file.name, 'svg', art, controls, { kind: 'svg', text });
-      setAlert(
-        skipped > 0
-          ? `Imported. ${skipped} element(s) skipped (hidden layers, fills, or text).`
-          : '',
-      );
+      const notes: string[] = [];
+      const nCal = art.calibrationPoints?.length ?? 0;
+      if (nCal > 0)
+        notes.push(`${nCal} calibration point(s) found — reference layer excluded from the cut.`);
+      if (skipped > 0) notes.push(`${skipped} element(s) skipped (hidden layers, fills, or text).`);
+      setAlert(notes.length ? `Imported. ${notes.join(' ')}` : '');
     } catch (err) {
       if (err === ABORTED) return; // superseded by a newer import — stay quiet
       setAlert(String((err as Error).message ?? err));
@@ -543,7 +560,14 @@ export function App() {
       setItems((list) =>
         list.map((i) =>
           i.id === id
-            ? { ...i, master: art.polylines, widthMm: art.widthMm, heightMm: art.heightMm }
+            ? {
+                ...i,
+                master: art.polylines,
+                widthMm: art.widthMm,
+                heightMm: art.heightMm,
+                pageOffset: art.pageOffset ?? i.pageOffset,
+                calibrationPoints: art.calibrationPoints ?? i.calibrationPoints,
+              }
             : i,
         ),
       );
@@ -606,6 +630,18 @@ export function App() {
       actualSizePlacement(selectedItem.widthMm, selectedItem.heightMm, selectedItem.placement),
     );
   }
+  function onPlaceOnPage() {
+    if (!selectedItem) return;
+    updatePlacement(
+      selectedItem.id,
+      placeOnPage(
+        selectedItem.widthMm,
+        selectedItem.heightMm,
+        selectedItem.pageOffset,
+        selectedItem.placement,
+      ),
+    );
+  }
   function rotate90() {
     if (!selectedItem) return;
     const rotation = (selectedItem.placement.rotation + 90) % 360;
@@ -626,13 +662,50 @@ export function App() {
       setAlert('Artwork is outside the work area — scale or move it to fit before plotting.');
       return;
     }
-    const gc = generateGcode(placed, {
+    const gc = generateGcode(placed, penOptions());
+    startProgram(gc, `plot start — ${gc.length} G-code lines, ${displayItems.length} artwork(s)`);
+  }
+
+  function penOptions() {
+    return {
       penUpZ: cal.penUpZ,
       penDownZ: cal.penDownZ,
       dwellMs: cal.penDwellMs,
       drawFeed: cal.drawFeed,
       travelFeed: cal.travelFeed,
-    });
+    };
+  }
+
+  /** The selected artwork's calibration points at their placed paper coordinates. */
+  const selectedCalPoints: Point[] = useMemo(() => {
+    if (!selectedItem?.calibrationPoints?.length) return [];
+    const [placed] = placePolylines([selectedItem.calibrationPoints], selectedItem.placement);
+    return placed;
+  }, [selectedItem]);
+
+  /**
+   * Registration check: touch each calibration point `calPasses` times through
+   * the normal plot path, so Pause/Stop/progress apply and a second program is
+   * refused. Targets are the *placed* points — the same placement the cut uses.
+   */
+  function onRunCalibration() {
+    const c = ctrl();
+    if (!c || selectedCalPoints.length === 0) return;
+    const b = bounds([selectedCalPoints]);
+    if (b.minX < -0.01 || b.minY < -0.01 || b.maxX > bedW + 0.01 || b.maxY > bedH + 0.01) {
+      setAlert('A calibration point is outside the work area — move the artwork first.');
+      return;
+    }
+    const gc = generateCalibrationGcode(selectedCalPoints, calPasses, penOptions());
+    startProgram(
+      gc,
+      `calibration start — ${selectedCalPoints.length} point(s) × ${calPasses} pass(es)`,
+    );
+  }
+
+  function startProgram(gc: string[], logLine: string) {
+    const c = ctrl();
+    if (!c) return;
     plotTotalRef.current = gcodeXYLength(gc);
     traveledRef.current = 0;
     lastMposRef.current = null;
@@ -646,8 +719,20 @@ export function App() {
     stallHandledRef.current = false;
     setProgressFrac(0);
     setAlert('');
-    pushLog('SYS', `plot start — ${gc.length} G-code lines, ${displayItems.length} artwork(s)`);
+    pushLog('SYS', logLine);
     c.streamProgram(gc);
+  }
+
+  /** Apply the miss the operator read off the sheet as a work-origin shift (no motion). */
+  async function onApplyCorrection() {
+    if (!(calDx || calDy)) return;
+    await run(async () => {
+      await ctrl()!.shiftWorkZero(calDx, calDy);
+      pushLog('SYS', `work zero shifted by ${calDx}, ${calDy} mm (registration correction)`);
+      setCalDx(0);
+      setCalDy(0);
+      setAlert(`Work origin corrected by ${calDx}, ${calDy} mm. Run calibration again to confirm.`);
+    });
   }
 
   const setCalField = (k: keyof Calibration) => (v: number) => setCal((p) => ({ ...p, [k]: v }));
@@ -889,6 +974,14 @@ export function App() {
                 <button className={btn} disabled={!selectedItem} onClick={rotate90}>
                   Rotate 90°
                 </button>
+                <button
+                  className={`${btn} col-span-2`}
+                  disabled={!selectedItem}
+                  onClick={onPlaceOnPage}
+                  title="1:1 at the position the file gives it, so file mm = paper mm (registration cuts)"
+                >
+                  Place on page
+                </button>
               </div>
               {selectedItem && (
                 <p className="mt-2 text-xs text-slate-500">
@@ -961,6 +1054,56 @@ export function App() {
                   Unlock
                 </button>
               </div>
+            </Section>
+
+            <Section title="Registration check">
+              {selectedCalPoints.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  {selectedItem
+                    ? 'No calibration points in this artwork. Put crosshairs on a layer named “calibration” (or ids cal-…), or draw them pure blue.'
+                    : 'Select an artwork with calibration points.'}
+                </p>
+              ) : (
+                <>
+                  <ul className="mb-1.5 text-xs text-slate-600">
+                    {selectedItem!.calibrationPoints!.map((p, i) => (
+                      <li key={p.name + i} className="flex justify-between">
+                        <span>{p.name}</span>
+                        <span className="tabular-nums">
+                          {selectedCalPoints[i].x.toFixed(2)}, {selectedCalPoints[i].y.toFixed(2)}{' '}
+                          mm
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <NumberField
+                    label="Passes"
+                    value={calPasses}
+                    onChange={(v) => setCalPasses(clampPasses(v))}
+                  />
+                  <button
+                    className={`${btnPrimary} mt-1 w-full`}
+                    disabled={!connected || plotting || !!progress}
+                    onClick={onRunCalibration}
+                    title="Touch the pen down on each point, repeated per pass. Marks inside the printed dots = registered."
+                  >
+                    Run calibration
+                  </button>
+                  <p className="mt-2 mb-1 text-xs text-slate-500">
+                    Where did the marks land, relative to the printed dots? X right, Y down, mm.
+                  </p>
+                  <NumberField label="ΔX (mm)" value={calDx} step={0.1} onChange={setCalDx} />
+                  <NumberField label="ΔY (mm)" value={calDy} step={0.1} onChange={setCalDy} />
+                  <button
+                    className={`${btn} w-full`}
+                    disabled={!connected || plotting || !!progress || !(calDx || calDy)}
+                    onClick={onApplyCorrection}
+                    title="Shift the work origin by this offset without moving, so the next run lands on the dots"
+                  >
+                    Apply correction
+                  </button>
+                </>
+              )}
             </Section>
 
             <Section title="Pen & feeds" className="hidden md:block">
