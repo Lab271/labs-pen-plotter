@@ -96,12 +96,21 @@ The system SHALL detect when the placed artwork extends beyond the machine work 
 
 ### Requirement: WYSIWYG pen-path rendering
 
-The system SHALL render the flattened pen-path (the polylines that will actually be drawn) on the canvas, not the filled SVG, so the on-screen preview matches what the pen will plot.
+The canvas SHALL render the actual flattened pen path that will be plotted — not a thumbnail or an
+approximation — so what the operator sees is what the machine draws. Each artwork SHALL be drawn in
+the colour and line width of the pen assigned to it, so the preview also shows *what it will be
+drawn with*.
 
-#### Scenario: Preview equals plot
+#### Scenario: Preview equals the plot
 
 - **WHEN** artwork is placed on the page
-- **THEN** the canvas shows the exact polylines that will be sent to the plotter, in their on-paper positions
+- **THEN** the canvas shows the same polylines the G-code generator will emit, under the same
+  placement
+
+#### Scenario: The pen is visible in the preview
+
+- **WHEN** artworks on the page are assigned different pens
+- **THEN** each is drawn in its own pen's colour and weight
 
 ### Requirement: Selectable paper type
 

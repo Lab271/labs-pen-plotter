@@ -20,6 +20,7 @@ import {
   placePolylines,
 } from '../plot/place';
 import { DEFAULT_PAPER_STYLE_ID, PAPER_SIZES, PAPER_STYLES, paperDims } from '../plot/paper';
+import { resolvePen } from '../plot/pen';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
@@ -76,6 +77,8 @@ interface PlacedArt {
   placement: Placement;
   /** Per-artwork drawing controls. */
   controls: ArtControls;
+  /** Which pen draws it (`Pen.id`); resolved against the library at render time. */
+  penId?: string;
   /** Where the file put the artwork on its page (SVG only) — for Place on page. */
   pageOffset?: Point;
   /** Registration marks from the file's reference layer, artwork frame (never plotted). */
@@ -150,6 +153,7 @@ export function App() {
   // one — the same guard the shared session uses.
   const [settingsSynced, setSettingsSynced] = useState(false);
   const cal = settings.calibration;
+  const pens = settings.pens;
   const setCal = useCallback(
     (update: (prev: Calibration) => Calibration) =>
       setSettings((s) => ({ ...s, calibration: update(s.calibration) })),
@@ -196,6 +200,9 @@ export function App() {
   const [paperStyleId, setPaperStyleId] = useState(
     restored?.paperStyleId ?? DEFAULT_PAPER_STYLE_ID,
   );
+  // The pen newly imported artwork gets. Per job (it is part of the drawing),
+  // while the library of pens that exist is app settings.
+  const [selectedPenId, setSelectedPenId] = useState<string | undefined>(restored?.selectedPenId);
 
   useEffect(() => {
     const ctrl = new GatewayClient();
@@ -307,6 +314,7 @@ export function App() {
           if (typeof s.useCustomPaper === 'boolean') setUseCustomPaper(s.useCustomPaper);
           if (s.customPaper) setCustomPaper(s.customPaper);
           if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
+          if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
           // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
           // client talking to an older daemon that has no app-settings record —
           // the `appSettings` snapshot field (emitted right after this) wins when
@@ -357,10 +365,20 @@ export function App() {
       useCustomPaper,
       customPaper,
       paperStyleId,
+      selectedPenId,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
-  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, paperStyleId]);
+  }, [
+    items,
+    selectedId,
+    paperIdx,
+    orientation,
+    useCustomPaper,
+    customPaper,
+    paperStyleId,
+    selectedPenId,
+  ]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)
@@ -451,6 +469,9 @@ export function App() {
     source: ArtSource,
   ) {
     const id = `art${++idRef.current}`;
+    // Resolve rather than store the raw selection: the chosen pen may have been
+    // deleted from the library since, and artwork must always name a real pen.
+    const pen = resolvePen(pens, selectedPenId);
     sourcesRef.current.set(id, source);
     const placement = fitPlacement(art.widthMm, art.heightMm, 0, paper.widthMm, paper.heightMm);
     setItems((list) => [
@@ -464,6 +485,7 @@ export function App() {
         heightMm: art.heightMm,
         placement,
         controls,
+        penId: pen.id,
         pageOffset: art.pageOffset,
         calibrationPoints: art.calibrationPoints,
       },
@@ -539,6 +561,16 @@ export function App() {
   }
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
+  // One control, two jobs: with artwork selected it is that artwork's pen; with
+  // nothing selected it is the pen the next import will get. Both are what the
+  // operator means by "the pen I'm drawing with".
+  const activePen = resolvePen(pens, selectedItem ? selectedItem.penId : selectedPenId);
+  function setPen(penId: string) {
+    setSelectedPenId(penId);
+    if (selectedItem) {
+      setItems((list) => list.map((i) => (i.id === selectedItem.id ? { ...i, penId } : i)));
+    }
+  }
   // Source-stage controls are disabled while plotting (locked) or when the source
   // wasn't retained (after a reload — the master is kept, geometry controls still work).
   const sourceAvailable = !!selectedItem && sourcesRef.current.has(selectedItem.id);
@@ -547,14 +579,19 @@ export function App() {
   // Apply each artwork's detail control to its master → what is previewed and plotted.
   const displayItems = useMemo(
     () =>
-      items.map((i) => ({
-        id: i.id,
-        polylines: applyDetail(i.master, i.controls.detail),
-        placement: i.placement,
-        w: i.widthMm,
-        h: i.heightMm,
-      })),
-    [items],
+      items.map((i) => {
+        const p = resolvePen(pens, i.penId);
+        return {
+          id: i.id,
+          polylines: applyDetail(i.master, i.controls.detail),
+          placement: i.placement,
+          w: i.widthMm,
+          h: i.heightMm,
+          penColor: p.color,
+          penWidthMm: p.widthMm,
+        };
+      }),
+    [items, pens],
   );
   const selectedStrokes = displayItems.find((d) => d.id === selectedId)?.polylines.length ?? 0;
 
@@ -789,6 +826,8 @@ export function App() {
         <SettingsPage
           cal={cal}
           onCalField={setCalField}
+          pens={pens}
+          onPens={(next) => setSettings((prev) => ({ ...prev, pens: next }))}
           grbl={grbl}
           connected={connected}
           firmwareVersion={version}
@@ -1050,6 +1089,30 @@ export function App() {
                   Place on page
                 </button>
               </div>
+              <label className="mt-2 flex items-center gap-1.5">
+                <span className="text-xs text-slate-600">Pen</span>
+                <span
+                  className="h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300"
+                  style={{ backgroundColor: activePen.color }}
+                />
+                <select
+                  className={`${field} min-w-0 flex-1`}
+                  value={activePen.id}
+                  disabled={plotting}
+                  title={
+                    selectedItem
+                      ? `Pen for ${selectedItem.name}`
+                      : 'Pen newly imported artwork is drawn with'
+                  }
+                  onChange={(e) => setPen(e.target.value)}
+                >
+                  {pens.map((pen) => (
+                    <option key={pen.id} value={pen.id}>
+                      {pen.name} · {pen.widthMm} mm
+                    </option>
+                  ))}
+                </select>
+              </label>
               {selectedItem && (
                 <p className="mt-2 text-xs text-slate-500">
                   {selectedStrokes} strokes · {selectedItem.widthMm.toFixed(0)}×

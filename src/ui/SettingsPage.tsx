@@ -1,4 +1,5 @@
 import type { Calibration } from '../grbl/settings';
+import type { Pen } from '../plot/pen';
 import type { GrblSettings } from '../grbl/types';
 import { btn, btnPrimary, field } from './styles';
 
@@ -25,6 +26,9 @@ export interface SettingsPageProps {
   /** Machine setup being edited. Changes apply live — there is no Save button. */
   cal: Calibration;
   onCalField: (key: keyof Calibration) => (value: number) => void;
+  /** The pen library — what the operator owns, shared with every client. */
+  pens: Pen[];
+  onPens: (pens: Pen[]) => void;
   /** The controller's own `$$` settings, shown read-only. */
   grbl: GrblSettings;
   connected: boolean;
@@ -137,6 +141,75 @@ export function SettingsPage(p: SettingsPageProps) {
               step={100}
               onChange={p.onCalField('jogFeed')}
             />
+          </Group>
+
+          <Group title="Pens">
+            <p className="mb-1.5 text-xs text-slate-500">
+              The pens you own. Colour and width are what the canvas previews — width is the line
+              the tip really lays down, in mm. Artwork keeps the pen it was assigned, so renaming or
+              recolouring a pen updates every drawing that uses it.
+            </p>
+            <ul className="mb-1.5 space-y-1">
+              {p.pens.map((pen, i) => (
+                <li key={pen.id} className="flex items-center gap-1">
+                  <input
+                    type="color"
+                    className="h-6 w-8 shrink-0 rounded border border-slate-300"
+                    value={hexOr(pen.color)}
+                    aria-label={`${pen.name} colour`}
+                    onChange={(e) => p.onPens(replaceAt(p.pens, i, { color: e.target.value }))}
+                  />
+                  <input
+                    className={`${field} min-w-0 flex-1`}
+                    value={pen.name}
+                    aria-label={`${pen.name} name`}
+                    onChange={(e) => p.onPens(replaceAt(p.pens, i, { name: e.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    className={`${field} w-16 shrink-0`}
+                    value={pen.widthMm}
+                    step={0.1}
+                    min={0.05}
+                    aria-label={`${pen.name} width in mm`}
+                    onChange={(e) =>
+                      p.onPens(replaceAt(p.pens, i, { widthMm: Number(e.target.value) }))
+                    }
+                  />
+                  <span className="shrink-0 text-xs text-slate-400">mm</span>
+                  <button
+                    className="shrink-0 px-1 text-slate-400 hover:text-red-600 disabled:opacity-30"
+                    title={
+                      p.pens.length > 1
+                        ? 'Remove this pen'
+                        : 'The library keeps at least one pen — artwork has to be drawable'
+                    }
+                    disabled={p.pens.length < 2}
+                    onClick={() => p.onPens(p.pens.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              className={btn}
+              onClick={() =>
+                p.onPens([
+                  ...p.pens,
+                  {
+                    // Timestamped id: artwork references pens by id, so a new pen
+                    // must never reuse one a drawing already points at.
+                    id: `pen-${Date.now().toString(36)}`,
+                    name: 'New pen',
+                    color: '#1e293b',
+                    widthMm: 0.5,
+                  },
+                ])
+              }
+            >
+              + Add pen
+            </button>
           </Group>
 
           <Group title="Import defaults">
@@ -252,4 +325,18 @@ function NumberField(props: {
       />
     </label>
   );
+}
+
+/** Replace one pen in the library, leaving the rest untouched. */
+function replaceAt(pens: Pen[], i: number, patch: Partial<Pen>): Pen[] {
+  return pens.map((pen, j) => (j === i ? { ...pen, ...patch } : pen));
+}
+
+/**
+ * `<input type="color">` only accepts `#rrggbb`. A pen may legitimately carry a
+ * colour name (the library is hand-editable), so show black in the swatch
+ * rather than letting the browser silently reset the value to black on focus.
+ */
+function hexOr(color: string): string {
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : '#000000';
 }

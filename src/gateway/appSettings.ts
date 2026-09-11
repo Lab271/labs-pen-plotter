@@ -14,6 +14,7 @@
  * default rather than trusting the input.
  */
 import { DEFAULT_CALIBRATION, type Calibration } from '../grbl/settings';
+import { DEFAULT_PENS, normalizePens, type Pen } from '../plot/pen';
 
 export interface AppSettings {
   /**
@@ -24,6 +25,12 @@ export interface AppSettings {
   version: 1;
   /** Machine setup: work area, pen Z, dwell, feeds, and import defaults. */
   calibration: Calibration;
+  /**
+   * The pens the operator owns. A library, not a choice: which pen a piece of
+   * artwork is drawn with is part of the drawing (the session), but the pens
+   * that exist belong to the machine's shelf, so every client sees the same set.
+   */
+  pens: Pen[];
 }
 
 export const APP_SETTINGS_VERSION = 1;
@@ -31,6 +38,7 @@ export const APP_SETTINGS_VERSION = 1;
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   version: APP_SETTINGS_VERSION,
   calibration: { ...DEFAULT_CALIBRATION },
+  pens: DEFAULT_PENS.map((p) => ({ ...p })),
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -63,6 +71,7 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   return {
     version: APP_SETTINGS_VERSION,
     calibration: normalizeCalibration(rec.calibration),
+    pens: normalizePens(rec.pens),
   };
 }
 
