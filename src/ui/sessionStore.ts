@@ -33,6 +33,11 @@ export interface Session {
   useCustomPaper: boolean;
   customPaper: { widthMm: number; heightMm: number };
   /**
+   * Which stock the canvas draws behind the artwork (`PAPER_STYLES` id).
+   * Preview only — it never reaches the G-code. Optional for older sessions.
+   */
+  paperStyleId?: string;
+  /**
    * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
    * session or an old daemon keeps a tuned setup) but no longer written: the
    * machine setup is app settings now, stored on the gateway — see

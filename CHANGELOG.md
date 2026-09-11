@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Selectable paper type.** The canvas can show the sheet you are actually using —
+  plain, cream, dotted, grid, lined, kraft or black card — so a drawing can be judged
+  against the stock before it is spent. On dark stock the artwork previews light, which
+  is what a white or metallic pen does. Appearance only: the style is never passed to the
+  G-code generator, so nothing about the plot changes. Saved with the session.
 - **A Settings page** behind the gear in the header: work area, pen-down/up Z, dwell,
   the draw/travel/jog feeds, image-import defaults, connection/version info, and a
   read-only view of the controller's `$$` settings. The main page is now the job —
