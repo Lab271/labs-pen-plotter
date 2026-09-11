@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Circle, Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import type { Placement, Point, Polyline } from '../plot/types';
+import { paperStyle, type PaperStyle } from '../plot/paper';
 
 interface CanvasArt {
   id: string;
@@ -19,6 +20,8 @@ interface Props {
   bedH: number;
   paperW: number;
   paperH: number;
+  /** How the sheet looks (colour + pattern). Preview only — never plotted. */
+  paperStyleId?: string;
   artworks: CanvasArt[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -36,6 +39,7 @@ export function PlotCanvas(props: Props) {
     bedH,
     paperW,
     paperH,
+    paperStyleId,
     artworks,
     selectedId,
     penPos,
@@ -55,6 +59,17 @@ export function PlotCanvas(props: Props) {
     Math.min((width - 2 * margin) / fitW, (height - 2 * margin) / fitH),
   );
   const markerR = 7 / pxPerMm;
+  const paper = paperStyle(paperStyleId);
+  // Patterned stock (dots/grid/lines) is drawn as ONE tiled fill rather than
+  // thousands of nodes: a 5 mm dot grid on A0 would otherwise be ~40 000 circles,
+  // redrawn on every placement change. The tile is rendered at a fixed pixel
+  // pitch and scaled to mm, so it stays crisp at any zoom the bed fit produces.
+  const patternTile = useMemo(() => makePatternTile(paper), [paper]);
+  const tileScale = paper.spacingMm > 0 ? paper.spacingMm / TILE_PX : 1;
+  // Artwork on dark stock is drawn light — a white or metallic pen is what such
+  // sheets are for, so this is both legible and closer to the real result.
+  const strokeColor = paper.dark ? '#e2e8f0' : '#475569';
+  const selectedStroke = paper.dark ? '#93c5fd' : '#1d4ed8';
 
   const nodeRefs = useRef(new Map<string, Konva.Group>());
   const trRef = useRef<Konva.Transformer>(null);
@@ -104,7 +119,7 @@ export function PlotCanvas(props: Props) {
             <Line
               key={i}
               points={pl.flatMap((p) => [p.x, p.y])}
-              stroke={a.id === selectedId ? '#1d4ed8' : '#475569'}
+              stroke={a.id === selectedId ? selectedStroke : strokeColor}
               strokeWidth={1.4}
               strokeScaleEnabled={false}
               lineCap="round"
@@ -113,7 +128,16 @@ export function PlotCanvas(props: Props) {
           ))}
         </Group>
       )),
-    [artworks, selectedId, onSelect, onPlacement, registerNode, locked],
+    [
+      artworks,
+      selectedId,
+      onSelect,
+      onPlacement,
+      registerNode,
+      locked,
+      strokeColor,
+      selectedStroke,
+    ],
   );
 
   return (
@@ -142,7 +166,7 @@ export function PlotCanvas(props: Props) {
             y={0}
             width={paperW}
             height={paperH}
-            fill="#ffffff"
+            fill={paper.color}
             stroke="#94a3b8"
             strokeWidth={1}
             strokeScaleEnabled={false}
@@ -150,6 +174,22 @@ export function PlotCanvas(props: Props) {
             shadowOpacity={0.12}
             shadowBlur={6}
           />
+          {patternTile && (
+            <Rect
+              x={0}
+              y={0}
+              width={paperW}
+              height={paperH}
+              // Konva types this as HTMLImageElement, but draws any canvas
+              // image source — a <canvas> avoids the async decode an <img>
+              // (data URL) would need before the first paint.
+              fillPatternImage={patternTile as unknown as HTMLImageElement}
+              fillPatternScaleX={tileScale}
+              fillPatternScaleY={tileScale}
+              fillPatternRepeat="repeat"
+              listening={false}
+            />
+          )}
           {/* Subtle paper-size label, centered on the paper (behind the artwork). */}
           <Text
             x={0}
@@ -158,7 +198,7 @@ export function PlotCanvas(props: Props) {
             align="center"
             text={`${Math.round(paperW)} × ${Math.round(paperH)} mm`}
             fontSize={Math.min(paperW, paperH) * 0.06}
-            fill="#cbd5e1"
+            fill={paper.dark ? '#475569' : '#cbd5e1'}
             listening={false}
           />
           {artNodes}
@@ -186,4 +226,44 @@ export function PlotCanvas(props: Props) {
       </Layer>
     </Stage>
   );
+}
+
+/** Pixel pitch of a pattern tile — one cell, scaled to the style's mm pitch. */
+const TILE_PX = 24;
+
+/**
+ * Render one cell of the sheet's pattern to an offscreen canvas, for use as a
+ * repeating fill. Returns null for unpatterned stock (and outside a browser).
+ */
+function makePatternTile(style: PaperStyle): HTMLCanvasElement | null {
+  if (style.pattern === 'none' || typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = TILE_PX;
+  c.height = TILE_PX;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = style.patternColor;
+  ctx.strokeStyle = style.patternColor;
+  // The tile is drawn at the cell's top-left edge, so neighbouring tiles join
+  // into continuous rules rather than repeating a line inside each cell.
+  if (style.pattern === 'dots') {
+    ctx.beginPath();
+    ctx.arc(0, 0, TILE_PX * 0.075, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (style.pattern === 'grid') {
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0.5, 0);
+    ctx.lineTo(0.5, TILE_PX);
+    ctx.moveTo(0, 0.5);
+    ctx.lineTo(TILE_PX, 0.5);
+    ctx.stroke();
+  } else {
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 0.5);
+    ctx.lineTo(TILE_PX, 0.5);
+    ctx.stroke();
+  }
+  return c;
 }

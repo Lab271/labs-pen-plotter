@@ -34,6 +34,9 @@ unattended **Raspberry Pi** setup needs.
   one or more artworks on a sheet anchored at the bed's top-left corner. "Fit to corner"
   and "fit to paper" helpers, paper presets A4–A0 (plus an A0 SBP variant) or a custom
   size, in landscape or portrait.
+- **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
+  dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
+  or metallic pen). Appearance only: it never touches the generated paths.
 - **WYSIWYG preview.** The canvas renders the actual flattened pen path, plus a **live
   pen marker** that tracks the machine's reported work position while it draws.
 - **Detail slider.** Thins strokes live for both the preview and the plot — fewer strokes

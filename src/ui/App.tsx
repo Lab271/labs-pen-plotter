@@ -19,7 +19,7 @@ import {
   placeOnPage,
   placePolylines,
 } from '../plot/place';
-import { PAPER_SIZES, paperDims } from '../plot/paper';
+import { DEFAULT_PAPER_STYLE_ID, PAPER_SIZES, PAPER_STYLES, paperDims } from '../plot/paper';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
@@ -192,6 +192,10 @@ export function App() {
   const [customPaper, setCustomPaper] = useState(
     restored?.customPaper ?? { widthMm: 600, heightMm: 400 },
   );
+  // The stock shown behind the artwork. Preview only — see `PAPER_STYLES`.
+  const [paperStyleId, setPaperStyleId] = useState(
+    restored?.paperStyleId ?? DEFAULT_PAPER_STYLE_ID,
+  );
 
   useEffect(() => {
     const ctrl = new GatewayClient();
@@ -302,6 +306,7 @@ export function App() {
           if (s.orientation) setOrientation(s.orientation);
           if (typeof s.useCustomPaper === 'boolean') setUseCustomPaper(s.useCustomPaper);
           if (s.customPaper) setCustomPaper(s.customPaper);
+          if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
           // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
           // client talking to an older daemon that has no app-settings record —
           // the `appSettings` snapshot field (emitted right after this) wins when
@@ -351,10 +356,11 @@ export function App() {
       orientation,
       useCustomPaper,
       customPaper,
+      paperStyleId,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
-  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper]);
+  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, paperStyleId]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)
@@ -873,6 +879,19 @@ export function App() {
               <option value="portrait">Portrait</option>
             </select>
           )}
+          <select
+            className={field}
+            value={paperStyleId}
+            title="Paper type — preview only; it changes nothing about what is plotted"
+            aria-label="Paper type"
+            onChange={(e) => setPaperStyleId(e.target.value)}
+          >
+            {PAPER_STYLES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
           <button
             className={btn}
             title="Settings — machine, pen, feeds, import defaults"
@@ -940,6 +959,7 @@ export function App() {
               bedH={bedH}
               paperW={paper.widthMm}
               paperH={paper.heightMm}
+              paperStyleId={paperStyleId}
               artworks={displayItems}
               selectedId={selectedId}
               onSelect={setSelectedId}
