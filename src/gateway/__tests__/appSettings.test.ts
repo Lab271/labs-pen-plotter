@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CALIBRATION } from '../../grbl/settings';
+import { DEFAULT_PENS } from '../../plot/pen';
 import {
   APP_SETTINGS_VERSION,
   appSettingsFromLegacySession,
@@ -33,8 +34,17 @@ describe('normalizeAppSettings', () => {
 
   it('drops unknown keys instead of persisting them', () => {
     const s = normalizeAppSettings({ calibration: { nonsense: 1 }, somethingElse: true });
-    expect(Object.keys(s).sort()).toEqual(['calibration', 'version']);
+    expect(Object.keys(s).sort()).toEqual(['calibration', 'pens', 'version']);
     expect(s.calibration).toEqual(DEFAULT_CALIBRATION);
+  });
+
+  it('normalises the pen library, defaulting it when unusable', () => {
+    expect(normalizeAppSettings({}).pens).toEqual(DEFAULT_PENS);
+    expect(normalizeAppSettings({ pens: 'none' }).pens).toEqual(DEFAULT_PENS);
+    const one = normalizeAppSettings({
+      pens: [{ id: 'x', name: 'Sepia', color: '#8b5a2b', widthMm: 0.3 }],
+    });
+    expect(one.pens).toEqual([{ id: 'x', name: 'Sepia', color: '#8b5a2b', widthMm: 0.3 }]);
   });
 
   it('does not alias the defaults, so a mutation cannot leak into them', () => {

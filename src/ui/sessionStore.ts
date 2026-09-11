@@ -14,6 +14,8 @@ export interface PersistedArt {
   placement: Placement;
   /** Per-artwork drawing controls (optional for sessions saved before they existed). */
   controls?: ArtControls;
+  /** Which pen draws this artwork (`Pen.id`). Optional for older sessions. */
+  penId?: string;
   /** Page position and registration marks from import (optional: PNGs, old sessions). */
   pageOffset?: Point;
   calibrationPoints?: CalibrationPoint[];
@@ -37,6 +39,8 @@ export interface Session {
    * Preview only — it never reaches the G-code. Optional for older sessions.
    */
   paperStyleId?: string;
+  /** The pen newly imported artwork is assigned (`Pen.id`). Optional for older sessions. */
+  selectedPenId?: string;
   /**
    * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
    * session or an old daemon keeps a tuned setup) but no longer written: the

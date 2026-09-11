@@ -11,6 +11,10 @@ interface CanvasArt {
   /** Local artwork size (mm) — used for an invisible drag hit-area. */
   w: number;
   h: number;
+  /** The pen's colour, so the preview shows what will actually be drawn. */
+  penColor?: string;
+  /** The pen's line width in mm — the line the tip really lays down. */
+  penWidthMm?: number;
 }
 
 interface Props {
@@ -66,10 +70,20 @@ export function PlotCanvas(props: Props) {
   // pitch and scaled to mm, so it stays crisp at any zoom the bed fit produces.
   const patternTile = useMemo(() => makePatternTile(paper), [paper]);
   const tileScale = paper.spacingMm > 0 ? paper.spacingMm / TILE_PX : 1;
-  // Artwork on dark stock is drawn light — a white or metallic pen is what such
-  // sheets are for, so this is both legible and closer to the real result.
+  // Fallback stroke colours for artwork with no pen assigned (a session saved
+  // before pens existed). Artwork on dark stock is drawn light — a white or
+  // metallic pen is what such sheets are for, so this is both legible and
+  // closer to the real result.
   const strokeColor = paper.dark ? '#e2e8f0' : '#475569';
   const selectedStroke = paper.dark ? '#93c5fd' : '#1d4ed8';
+  /**
+   * Stroke width in screen px for a pen of `widthMm`. To scale where the zoom
+   * allows it, but never thinner than a hairline: fitting A0 into a laptop
+   * canvas is ~0.5 px/mm, where an honest 0.5 mm line is a quarter of a pixel —
+   * i.e. invisible artwork. The floor keeps the drawing visible, and the
+   * relative weight of a 0.3 against a 0.8 pen still reads once zoomed in.
+   */
+  const penPx = (widthMm: number | undefined) => Math.max(1.2, (widthMm ?? 0.5) * pxPerMm);
 
   const nodeRefs = useRef(new Map<string, Konva.Group>());
   const trRef = useRef<Konva.Transformer>(null);
@@ -119,8 +133,11 @@ export function PlotCanvas(props: Props) {
             <Line
               key={i}
               points={pl.flatMap((p) => [p.x, p.y])}
-              stroke={a.id === selectedId ? selectedStroke : strokeColor}
-              strokeWidth={1.4}
+              // The pen's own colour once it has one: selection is shown by the
+              // transform handles, so the preview does not have to recolour the
+              // artwork to indicate it — and recolouring would hide the pen.
+              stroke={a.penColor ?? (a.id === selectedId ? selectedStroke : strokeColor)}
+              strokeWidth={penPx(a.penWidthMm)}
               strokeScaleEnabled={false}
               lineCap="round"
               lineJoin="round"
@@ -137,6 +154,7 @@ export function PlotCanvas(props: Props) {
       locked,
       strokeColor,
       selectedStroke,
+      pxPerMm,
     ],
   );
 

@@ -34,6 +34,10 @@ unattended **Raspberry Pi** setup needs.
   one or more artworks on a sheet anchored at the bed's top-left corner. "Fit to corner"
   and "fit to paper" helpers, paper presets A4–A0 (plus an A0 SBP variant) or a custom
   size, in landscape or portrait.
+- **Pens.** Define the pens you own (name, colour, line width in mm) once on the settings
+  page, then assign one per artwork. The canvas previews each artwork in its pen's colour
+  and weight, so the page shows what the plot will look like — not uniform grey. The
+  library is shared with every device; the assignment is saved with the drawing.
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.

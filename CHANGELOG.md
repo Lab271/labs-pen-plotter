@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pens.** A pen library — name, colour, line width in mm — defined on the settings
+  page and shared with every client, plus a pen per artwork (assigned on import,
+  changeable after). The canvas previews each artwork in its pen's colour and weight,
+  floored at a hairline so a 0.5 mm line is still visible with A0 fitted to the screen.
+  Generated G-code is unchanged: what a pen *means* for the toolpath comes with
+  multi-colour plotting and hatching.
 - **Selectable paper type.** The canvas can show the sheet you are actually using —
   plain, cream, dotted, grid, lined, kraft or black card — so a drawing can be judged
   against the stock before it is spent. On dark stock the artwork previews light, which
