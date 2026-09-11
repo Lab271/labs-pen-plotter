@@ -4,6 +4,7 @@ import { LineReader } from './lineReader';
 import { classifyLine } from './parse';
 import { Calibration, DEFAULT_CALIBRATION } from './settings';
 import type { GrblSettings, Position, StatusReport } from './types';
+import { splitPenSegments } from './program';
 
 /** Real-time single-byte commands (sent out-of-band, never queued, no `ok`). */
 export const RT = {
@@ -38,6 +39,11 @@ type ControllerEvents = {
   streamProgress: { acked: number; total: number };
   streamComplete: undefined;
   streamAborted: { reason: string };
+  /**
+   * The program reached a pen change: every line before it is executed, the
+   * machine is parked and idle, and streaming holds until `continueProgram()`.
+   */
+  penChange: { index: number; label: string };
   log: { dir: 'tx' | 'rx' | 'info'; text: string };
 };
 
@@ -76,9 +82,26 @@ export class GrblController {
   // Serialized writer so a real-time byte never interleaves inside a line.
   private writeChain: Promise<void> = Promise.resolve();
 
-  // Streaming job state.
-  private stream: { total: number; acked: number; aborted: boolean } | null = null;
+  // Streaming job state. `segments` is the program split at its pen changes;
+  // only ever one segment is queued, so the machine physically cannot run past
+  // a pen change however the rest of the system behaves.
+  private stream: {
+    total: number;
+    acked: number;
+    aborted: boolean;
+    segments: string[][];
+    /** Index of the segment currently being fed. */
+    segment: number;
+    /** `labels[i]` is the pen to load between segment i and i + 1. */
+    labels: string[];
+  } | null = null;
   private pendingComplete = false;
+  // Segment finished (all acked) but the machine may still be moving: an ack
+  // only means the line reached the planner. The prompt waits for Idle, exactly
+  // as completion does — a pen must not be swapped mid-move.
+  private pendingPenChangeIndex: number | null = null;
+  // The pen change the operator is being asked for, or null.
+  private _penChange: { index: number; label: string } | null = null;
 
   // Connection/status state.
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -223,6 +246,9 @@ export class GrblController {
         this._lastStatus = report;
         this.events.emit('status', report);
         if (this.pendingComplete && report.state === 'Idle') this.finishStream();
+        if (this.pendingPenChangeIndex !== null && report.state === 'Idle') {
+          this.emitPenChange(this.pendingPenChangeIndex);
+        }
         break;
       }
       case 'setting':
@@ -258,6 +284,12 @@ export class GrblController {
           // Completion requires queue empty AND GRBL Idle (not just last ok).
           if (this._lastStatus?.state === 'Idle') this.finishStream();
           else this.pendingComplete = true;
+        } else if (this.queue.length === 0 && this.inflight.length === 0) {
+          // Nothing left to send but the program isn't done: this is the end of
+          // a segment, i.e. the next pen change.
+          const index = this.stream.segment;
+          if (this._lastStatus?.state === 'Idle') this.emitPenChange(index);
+          else this.pendingPenChangeIndex = index;
         }
       }
     } else {
@@ -278,6 +310,10 @@ export class GrblController {
   private pump(): void {
     while (this.queue.length > 0) {
       if (this.paused) break; // soft pause: hold new lines; inflight ones finish
+      // Belt and braces. A held pen change also leaves the queue empty, but
+      // Resume must never be able to pump the next segment out from under the
+      // prompt — the wrong pen would draw the next colour.
+      if (this._penChange) break;
       const next = this.queue[0];
       // Always allow at least one line when nothing is in flight; otherwise the
       // line must fit within the remaining RX-buffer window.
@@ -325,6 +361,8 @@ export class GrblController {
    * longer counts, so Stop → Plot works without waiting for the Idle settle.
    */
   get isStreaming(): boolean {
+    // A job held at a pen change still counts: `stream` stays set, so a second
+    // Plot is refused rather than interleaving into the waiting program.
     return (this.stream !== null && !this.stream.aborted) || this.paused;
   }
 
@@ -338,22 +376,56 @@ export class GrblController {
    */
   streamProgram(rawLines: string[]): void {
     if (this.isStreaming) throw new Error('A program is already running — stop it first.');
-    const program = rawLines.map((l) => stripComment(l)).filter((l) => l.length > 0);
+    const { segments, labels, total } = splitPenSegments(rawLines);
     this.paused = false;
     // Start every plot at 100% feed so speed is predictable (override persists in
     // GRBL across jobs otherwise).
     this._feedOverride = 100;
     void this.sendRealtime(RT.FEED_100).catch(() => undefined);
-    this.stream = { total: program.length, aborted: false, acked: 0 };
+    this.stream = { total, aborted: false, acked: 0, segments, segment: 0, labels };
     this.pendingComplete = false;
-    if (program.length === 0) {
+    this.pendingPenChangeIndex = null;
+    this._penChange = null;
+    if (total === 0) {
       this.finishStream();
       return;
     }
-    for (const line of program) {
+    this.queueSegment();
+  }
+
+  /**
+   * Queue the segment currently due. Empty segments (two markers in a row) are
+   * skipped rather than prompting for a pen that draws nothing.
+   */
+  private queueSegment(): void {
+    const st = this.stream;
+    if (!st) return;
+    while (st.segment < st.segments.length && st.segments[st.segment].length === 0) st.segment++;
+    if (st.segment >= st.segments.length) {
+      this.finishStream();
+      return;
+    }
+    for (const line of st.segments[st.segment]) {
       // Errors are surfaced via the 'error'/'streamAborted' events, not here.
       this.enqueueLine(line, true).catch(() => undefined);
     }
+  }
+
+  /**
+   * Carry on after a pen change — the operator has loaded the pen the prompt
+   * named. A no-op unless a pen change is actually pending, so a stray call
+   * (two clients both pressing Continue) cannot skip a segment.
+   */
+  continueProgram(): void {
+    if (!this._penChange || !this.stream || this.stream.aborted) return;
+    this._penChange = null;
+    this.stream.segment++;
+    this.queueSegment();
+  }
+
+  /** The pen change the operator is being asked for, or null. */
+  get penChange(): { index: number; label: string } | null {
+    return this._penChange;
   }
 
   /**
@@ -422,10 +494,24 @@ export class GrblController {
       return true;
     });
     this.pendingComplete = false;
+    this.pendingPenChangeIndex = null;
+    this._penChange = null;
+  }
+
+  /** Prompt for the pen segment `index + 1` needs, and hold the stream there. */
+  private emitPenChange(index: number): void {
+    this.pendingPenChangeIndex = null;
+    const st = this.stream;
+    if (!st || st.aborted || this._penChange) return;
+    const label = st.labels[index] ?? '';
+    this._penChange = { index, label };
+    this.events.emit('penChange', { index, label });
   }
 
   private finishStream(): void {
     this.pendingComplete = false;
+    this.pendingPenChangeIndex = null;
+    this._penChange = null;
     const done = this.stream;
     this.stream = null;
     if (done && !done.aborted) this.events.emit('streamComplete', undefined);
@@ -637,11 +723,3 @@ export class GrblController {
 }
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Strip GRBL/G-code comments (`;...` and `(...)`) and trim. */
-function stripComment(line: string): string {
-  return line
-    .replace(/\(.*?\)/g, '')
-    .replace(/;.*$/, '')
-    .trim();
-}

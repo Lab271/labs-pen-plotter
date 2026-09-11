@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-pen plotting with pen-change pauses.** Artwork is grouped by pen (in pen-library
+  order, so the sequence is predictable and reorderable) and plotted as one job that stops
+  between pens. The machine parks at the work origin with the pen up, the app names the pen
+  to load, and confirming continues from the next stroke — nothing lost, nothing drawn
+  twice. The hold lives on the daemon: reloading the page or attaching another device still
+  shows the prompt, a second plot is refused while it waits, and so is an in-app update.
 - **Pens.** A pen library — name, colour, line width in mm — defined on the settings
   page and shared with every client, plus a pen per artwork (assigned on import,
   changeable after). The canvas previews each artwork in its pen's colour and weight,

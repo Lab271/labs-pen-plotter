@@ -1,4 +1,7 @@
 import type { Polyline } from './types';
+// The marker's meaning ("stop feeding lines here") belongs to the streamer, so
+// its definition lives there and this module emits what that module reads.
+import { PEN_CHANGE_PREFIX } from '../grbl/program';
 
 export interface PenOptions {
   /** Z that lifts the pen clear (≤ 0 on this inverted-Z machine). */
@@ -58,6 +61,13 @@ function orderPolylines(polylines: Polyline[]): Polyline[] {
   }
 
   return ordered;
+}
+
+/** One pen's share of a drawing: everything drawn before the next pen change. */
+export interface PenGroup {
+  /** What to ask the operator to load, e.g. "Red 0.5 fineliner". */
+  label: string;
+  polylines: Polyline[];
 }
 
 /**
@@ -262,4 +272,47 @@ export function formatDuration(seconds: number): string {
   const h = Math.floor(total / 3600);
   const m = Math.round((total % 3600) / 60);
   return `~${h}h ${String(m).padStart(2, '0')}m`;
+}
+
+/**
+ * Generate one program covering several pens, with a pen-change marker between
+ * groups.
+ *
+ * Each group is framed exactly like a single-pen program and **ends parked at
+ * the work origin with the pen up**, so the machine is somewhere safe and
+ * predictable to swap a pen — not stopped over the drawing, where a hand
+ * reaching in would foul the artwork.
+ *
+ * Groups with nothing to draw are dropped rather than producing a pen change
+ * the operator would have to answer for no reason. A single remaining group
+ * yields exactly what `generateGcode` produces, so a one-pen drawing is
+ * byte-for-byte the plot it was before pens existed.
+ */
+export function generatePenGroupGcode(groups: PenGroup[], opts: PenOptions): string[] {
+  const drawable = groups.filter((g) => g.polylines.some((p) => p.length >= 2));
+  if (drawable.length === 0) return generateGcode([], opts);
+  if (drawable.length === 1) return generateGcode(drawable[0].polylines, opts);
+
+  const up = fmt(opts.penUpZ);
+  const dwell = fmt(opts.dwellMs / 1000);
+  const draw = Math.round(opts.drawFeed);
+  const travel = Math.round(opts.travelFeed);
+  const down = fmt(opts.penDownZ);
+
+  const lines: string[] = ['G21', 'G90', `G0 Z${up}`];
+  drawable.forEach((group, i) => {
+    for (const poly of orderPolylines(group.polylines)) {
+      const start = poly[0];
+      lines.push(`G1 X${fmt(start.x)} Y${fmt(start.y)} F${travel}`);
+      lines.push(`G0 Z${down}`, `G4 P${dwell}`);
+      for (let j = 1; j < poly.length; j++) {
+        lines.push(`G1 X${fmt(poly[j].x)} Y${fmt(poly[j].y)} F${draw}`);
+      }
+      lines.push(`G0 Z${up}`, `G4 P${dwell}`);
+    }
+    // Park at the origin before the pen change (and at the end of the job).
+    lines.push(`G1 X0 Y0 F${travel}`);
+    if (i < drawable.length - 1) lines.push(`${PEN_CHANGE_PREFIX}${drawable[i + 1].label}`);
+  });
+  return lines;
 }

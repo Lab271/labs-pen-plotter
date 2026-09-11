@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GrblController } from '../GrblController';
 import { FakeTransport, tick } from './fakeTransport';
+import { PEN_CHANGE_PREFIX } from '../program';
 
 describe('character-counting streaming window', () => {
   it('sends only as many lines as fit in the 128-byte RX buffer', async () => {
@@ -121,5 +122,153 @@ describe('one program at a time', () => {
     await tick();
     expect(c.isStreaming).toBe(false);
     expect(() => c.streamProgram(['G1 X2'])).not.toThrow();
+  });
+});
+
+describe('pen-change holds', () => {
+  /** Ack `n` lines and let the controller's write chain settle. */
+  async function ack(t: FakeTransport, n: number) {
+    for (let i = 0; i < n; i++) {
+      t.feed('ok\r\n');
+      await tick();
+    }
+  }
+  const idle = '<Idle|MPos:0.000,0.000,0.000|WCO:0.000,0.000,0.000>\r\n';
+  const run = '<Run|MPos:5.000,0.000,0.000|WCO:0.000,0.000,0.000>\r\n';
+
+  const program = (marker = `${PEN_CHANGE_PREFIX}Red 0.5`) => [
+    'G21',
+    'G90',
+    marker,
+    'G1 X1 Y1 F100',
+    'G1 X2 Y2 F100',
+  ];
+
+  it('stops feeding at the marker and prompts once the machine is idle', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    const prompts: { index: number; label: string }[] = [];
+    c.on('penChange', (e) => prompts.push(e));
+
+    c.streamProgram(program());
+    await tick();
+    // Only the first segment is ever queued: the lines after the marker are not
+    // sent, so the machine cannot draw them with the wrong pen in the holder.
+    expect(t.lineWrites).toEqual(['G21\n', 'G90\n']);
+
+    // Still moving when the last ack lands — the prompt must wait.
+    t.feed(run);
+    await ack(t, 2);
+    expect(prompts).toHaveLength(0);
+
+    t.feed(idle);
+    await tick();
+    expect(prompts).toEqual([{ index: 0, label: 'Red 0.5' }]);
+    expect(c.penChange).toEqual({ index: 0, label: 'Red 0.5' });
+    expect(t.lineWrites).toEqual(['G21\n', 'G90\n']);
+  });
+
+  it('sends the next segment only on continueProgram', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(program());
+    await tick();
+    t.feed(idle);
+    await ack(t, 2);
+    await tick();
+    expect(c.penChange).not.toBeNull();
+
+    c.continueProgram();
+    await tick();
+    expect(t.lineWrites).toEqual(['G21\n', 'G90\n', 'G1 X1 Y1 F100\n', 'G1 X2 Y2 F100\n']);
+    expect(c.penChange).toBeNull();
+  });
+
+  it('ignores a stray continue, so a second client cannot skip a segment', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(program());
+    await tick();
+    c.continueProgram(); // no pen change pending yet
+    await tick();
+    expect(t.lineWrites).toEqual(['G21\n', 'G90\n']);
+  });
+
+  it('does not let Resume pump past a held pen change', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(program());
+    await tick();
+    t.feed(idle);
+    await ack(t, 2);
+    await tick();
+
+    c.pause();
+    c.resume(); // a pause/resume round trip must not release the pen hold
+    await tick();
+    expect(t.lineWrites).toEqual(['G21\n', 'G90\n']);
+    expect(c.penChange).not.toBeNull();
+  });
+
+  it('counts progress across the whole job and completes at the end', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    const progress: { acked: number; total: number }[] = [];
+    let complete = false;
+    c.on('streamProgress', (p) => progress.push(p));
+    c.on('streamComplete', () => {
+      complete = true;
+    });
+
+    c.streamProgram(program());
+    await tick();
+    t.feed(idle);
+    await ack(t, 2);
+    await tick();
+    // The marker is not a machine line, so the total is the 4 real lines.
+    expect(progress[progress.length - 1]).toEqual({ acked: 2, total: 4 });
+
+    c.continueProgram();
+    await tick();
+    await ack(t, 2);
+    t.feed(idle);
+    await tick();
+    expect(progress[progress.length - 1]).toEqual({ acked: 4, total: 4 });
+    expect(complete).toBe(true);
+  });
+
+  it('still counts as streaming while held, so a second plot is refused', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    c.streamProgram(program());
+    await tick();
+    t.feed(idle);
+    await ack(t, 2);
+    await tick();
+    expect(c.isStreaming).toBe(true);
+    expect(() => c.streamProgram(['G1 X9 Y9 F100'])).toThrow(/already running/);
+  });
+
+  it('skips an empty segment rather than prompting for a pen that draws nothing', async () => {
+    const t = new FakeTransport();
+    const c = new GrblController(t);
+    const prompts: { index: number; label: string }[] = [];
+    c.on('penChange', (e) => prompts.push(e));
+    c.streamProgram([
+      'G21',
+      `${PEN_CHANGE_PREFIX}Red`,
+      `${PEN_CHANGE_PREFIX}Blue`,
+      'G1 X1 Y1 F100',
+    ]);
+    await tick();
+    t.feed(idle);
+    await ack(t, 1);
+    await tick();
+    expect(prompts).toHaveLength(1);
+    c.continueProgram();
+    await tick();
+    // Continuing from the first prompt skips the empty middle segment and sends
+    // the last one — the operator is asked once, not twice.
+    expect(t.lineWrites).toEqual(['G21\n', 'G1 X1 Y1 F100\n']);
   });
 });

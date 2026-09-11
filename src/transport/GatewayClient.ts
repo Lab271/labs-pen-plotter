@@ -29,6 +29,11 @@ type ClientEvents = {
   versionInfo: { appVersion: string; latestVersion: string | null };
   /** Self-update progress/outcome. */
   updateStatus: UpdateStatus;
+  /**
+   * The machine is held at a pen change (null = it is not). Emitted from the
+   * snapshot too, so a client that attaches mid-job can answer the prompt.
+   */
+  penChange: { index: number; label: string } | null;
 };
 
 /**
@@ -195,6 +200,7 @@ export class GatewayClient {
         // calibration in the session blob the newer, typed record still wins.
         // Normalised here too: a pre-1.3 daemon sends no field at all.
         this.events.emit('appSettings', s.appSettings ? normalizeAppSettings(s.appSettings) : null);
+        this.events.emit('penChange', s.penChange ?? null);
         // Continue a plot that was paused by a previous Disconnect-as-pause.
         if (s.paused) this.resume();
         break;
@@ -313,6 +319,10 @@ export class GatewayClient {
   }
   async setSetting(num: number, value: number): Promise<void> {
     await this.cmd({ cmd: 'setSetting', num, value });
+  }
+  /** Carry on after a pen change, once the operator has loaded the pen. */
+  async continueProgram(): Promise<void> {
+    await this.cmd({ cmd: 'continueProgram' });
   }
   /** Trigger a self-update to the latest release (daemon refuses while plotting). */
   async update(): Promise<void> {
