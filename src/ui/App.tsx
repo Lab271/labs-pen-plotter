@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GatewayClient } from '../transport/GatewayClient';
 import { Calibration } from '../grbl/settings';
 import { StatusReport, type GrblSettings } from '../grbl/types';
-import { loadCalibration, saveCalibration } from './calibrationStore';
+import { loadAppSettings, saveAppSettings } from './settingsStore';
 import { loadSession, saveSession, type Session, type PersistedArt } from './sessionStore';
 import { flattenSvg, ABORTED } from '../plot/svg';
 import { RegistrationWizard } from './RegistrationWizard';
@@ -31,6 +31,7 @@ import {
 import { PlotCanvas } from './PlotCanvas';
 import { Logo } from './Logo';
 import type { UpdateStatus } from '../gateway/protocol';
+import type { AppSettings } from '../gateway/appSettings';
 
 type Orientation = 'landscape' | 'portrait';
 
@@ -136,7 +137,20 @@ export function App() {
   // deviation), used to estimate plot time with realistic accel/cornering.
   const [motion, setMotion] = useState<{ accel?: number; jdev?: number }>({});
   const [alert, setAlert] = useState('');
-  const [cal, setCal] = useState<Calibration>(loadCalibration);
+  // App settings (machine setup + preferences) live on the daemon so every
+  // client of one plotter shares them. What's loaded here is the local cache:
+  // it decides the first paint and seeds a daemon that has none yet.
+  const [settings, setSettings] = useState<AppSettings>(loadAppSettings);
+  // True once we know what the daemon has (adopted it, or learned it has none).
+  // Until then we don't push, so a stale local copy can't clobber a newer shared
+  // one — the same guard the shared session uses.
+  const [settingsSynced, setSettingsSynced] = useState(false);
+  const cal = settings.calibration;
+  const setCal = useCallback(
+    (update: (prev: Calibration) => Calibration) =>
+      setSettings((s) => ({ ...s, calibration: update(s.calibration) })),
+    [],
+  );
 
   // Restore the editable session (artwork + page) so reopening the tab / reloading
   // after a reconnect keeps the drawing — it's browser state, not on the daemon.
@@ -280,13 +294,20 @@ export function App() {
           if (s.orientation) setOrientation(s.orientation);
           if (typeof s.useCustomPaper === 'boolean') setUseCustomPaper(s.useCustomPaper);
           if (s.customPaper) setCustomPaper(s.customPaper);
-          // Adopt the shared calibration (pen Z + feeds incl. draw speed) so a plot
-          // started from this device uses the same setup as the laptop — the plot's
-          // G-code is generated here from `cal`, so without this a phone would bake
-          // in its own (default, slow) feeds.
+          // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
+          // client talking to an older daemon that has no app-settings record —
+          // the `appSettings` snapshot field (emitted right after this) wins when
+          // the daemon is new enough to have one.
           if (s.calibration) setCal((prev) => ({ ...prev, ...s.calibration }));
         }
         sessionLoadedRef.current = true; // now safe to push local edits to the daemon
+      }),
+      ctrl.on('appSettings', (s) => {
+        // The daemon's settings are authoritative: one plotter, one setup. `null`
+        // means it has none yet, so we keep ours — flipping `settingsSynced`
+        // then seeds the daemon with them via the persist effect.
+        if (s) setSettings(s);
+        setSettingsSynced(true);
       }),
       ctrl.on('alarm', (e) => {
         setAlert(`ALARM:${e.code} — unlock ($X) or reset.`);
@@ -300,10 +321,16 @@ export function App() {
     };
   }, []);
 
+  // Push the machine setup to the daemon's engine (it reads pen Z / dwell for
+  // manual pen moves), and mirror the settings locally for the next first paint.
   useEffect(() => {
     if (ctrlRef.current) ctrlRef.current.calibration = cal;
-    saveCalibration(cal);
   }, [cal]);
+
+  useEffect(() => {
+    saveAppSettings(settings);
+    if (settingsSynced) ctrlRef.current?.saveAppSettings(settings);
+  }, [settings, settingsSynced]);
 
   // Persist the editable session: always to localStorage (instant, offline), and
   // to the daemon (lives on the Pi, any device) once we've synced its session.
@@ -316,11 +343,10 @@ export function App() {
       orientation,
       useCustomPaper,
       customPaper,
-      calibration: cal,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
-  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper, cal]);
+  }, [items, selectedId, paperIdx, orientation, useCustomPaper, customPaper]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)

@@ -4,6 +4,7 @@
  */
 import type { GrblSettings, StatusReport } from '../grbl/types';
 import type { Calibration } from '../grbl/settings';
+import type { AppSettings } from './appSettings';
 
 export const DEFAULT_GATEWAY_PORT = 8717;
 
@@ -47,6 +48,10 @@ export type ClientCommand =
   // Persist the editable session (artwork + page) on the daemon so it lives on
   // the Pi and is restored on any device that connects. Opaque blob to the daemon.
   | { cmd: 'saveSession'; session: unknown }
+  // Persist app-level settings (machine setup, preferences) on the daemon. One
+  // plotter has one setup, so the daemon owns these and pushes changes to the
+  // other clients — unlike the session, this is a typed, normalised record.
+  | { cmd: 'saveAppSettings'; settings: AppSettings }
   // Trigger a self-update to the latest release. Refused while a plot runs.
   | { cmd: 'update' };
 
@@ -73,6 +78,12 @@ export interface Snapshot {
   restoredNote: string | null;
   /** The editable session (artwork + page) stored on the daemon, or null. */
   session: unknown | null;
+  /**
+   * App settings stored on the daemon, or null when it has none yet. Null is
+   * meaningful: the client then keeps its own settings and seeds the daemon
+   * with them, rather than adopting defaults over the operator's tuned setup.
+   */
+  appSettings: AppSettings | null;
 }
 
 /**
@@ -95,6 +106,11 @@ export interface ForwardedEvents {
   versionInfo: { appVersion: string; latestVersion: string | null };
   /** Daemon-originated: self-update progress/outcome. */
   updateStatus: UpdateStatus;
+  /**
+   * Daemon-originated: app settings changed (by another client). Sent to every
+   * client except the one that saved them, so all clients show one setup.
+   */
+  appSettings: AppSettings;
 }
 
 export type ServerMessage =

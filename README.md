@@ -128,6 +128,8 @@ On macOS the daemon automatically runs `caffeinate -dimsu` for its lifetime so i
 | `GATEWAY_HOST` | `127.0.0.1` | Bind address. This is the **code default** (e.g. `npm run gateway` on a dev laptop); the **`.deb` ships `0.0.0.0`** (LAN — see the deployment section). The daemon has **no built-in auth**, so `0.0.0.0` exposes unauthenticated control to the whole LAN — use loopback + an SSH tunnel/VPN/reverse proxy on untrusted networks |
 | `PLOTTER_PATH` | _(auto)_ | Pin the serial device; otherwise auto-detect a `usbserial`/`wchusbserial`/`ttyUSB`/`ttyACM` port |
 | `PLOTTER_STATE` | `gateway/.plotter-state.json` | Where the remembered position is persisted |
+| `PLOTTER_SESSION` | `gateway/.session.json` | Where the shared editable session (artwork + page) is persisted |
+| `PLOTTER_APP_SETTINGS` | `gateway/.app-settings.json` | Where app settings (machine setup, preferences) are persisted — shared by every client |
 | `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes; add `http://localhost:5173` when driving a live daemon from the Vite dev server |
 
 ## Registration (cut to a printed sticker)

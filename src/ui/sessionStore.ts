@@ -32,8 +32,12 @@ export interface Session {
   orientation: 'landscape' | 'portrait';
   useCustomPaper: boolean;
   customPaper: { widthMm: number; heightMm: number };
-  /** Machine calibration (pen Z, feeds incl. draw speed). Shared across devices so
-   * a plot started from any device uses the same setup. Optional for old sessions. */
+  /**
+   * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
+   * session or an old daemon keeps a tuned setup) but no longer written: the
+   * machine setup is app settings now, stored on the gateway — see
+   * `src/gateway/appSettings.ts`.
+   */
   calibration?: Calibration;
 }
 
