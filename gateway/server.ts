@@ -10,6 +10,11 @@ import { NodeSerialTransport } from './NodeSerialTransport';
 import { isOriginAllowed, parseAllowedOrigins } from './origin';
 import { DEFAULT_GATEWAY_PORT } from '../src/gateway/protocol';
 import type { ClientMessage, Snapshot, StreamDebug, UpdateStatus } from '../src/gateway/protocol';
+import {
+  appSettingsFromLegacySession,
+  normalizeAppSettings,
+  type AppSettings,
+} from '../src/gateway/appSettings';
 import type { StatusReport, GrblSettings } from '../src/grbl/types';
 import { APP_VERSION } from './version';
 
@@ -36,6 +41,12 @@ const STATE_FILE =
 const SESSION_FILE =
   process.env.PLOTTER_SESSION ??
   join(fileURLToPath(new URL('.', import.meta.url)), '.session.json');
+// App settings (machine setup, preferences) live here — one plotter, one setup,
+// so every client that attaches adopts these. Separate from the session file on
+// purpose: the artwork is replaced constantly, the machine setup almost never.
+const APP_SETTINGS_FILE =
+  process.env.PLOTTER_APP_SETTINGS ??
+  join(fileURLToPath(new URL('.', import.meta.url)), '.app-settings.json');
 
 // ---- self-update config ----
 // Where the update oneshot records its progress; the daemon reads it back after
@@ -123,6 +134,36 @@ let session: unknown = (() => {
 function saveSessionBlob(blob: unknown) {
   session = blob;
   void writeFile(SESSION_FILE, JSON.stringify(blob)).catch(() => undefined);
+}
+
+// ---- persisted app settings (machine setup, preferences) ----
+// `null` until the operator has saved settings at least once: the first client
+// to attach then seeds them from its own, instead of everyone adopting defaults
+// over a tuned setup. Everything read from disk goes through normalizeAppSettings
+// (the file is operator-editable, and a garbage feed would end up in G-code).
+let appSettings: AppSettings | null = (() => {
+  try {
+    return normalizeAppSettings(JSON.parse(readFileSync(APP_SETTINGS_FILE, 'utf8')));
+  } catch {
+    // No settings file yet. On a daemon upgraded from <1.3 the machine setup is
+    // in the session blob (where shared calibration used to live) — lift it, so
+    // the operator's tuned feeds survive the move to a settings file.
+    return appSettingsFromLegacySession(session);
+  }
+})();
+
+let settingsWrite: Promise<unknown> = Promise.resolve();
+function saveAppSettings(raw: unknown) {
+  appSettings = normalizeAppSettings(raw);
+  const json = JSON.stringify(appSettings, null, 2);
+  // Atomic (temp + rename), and serialized behind the previous write: this file
+  // holds the pen-down Z and the feeds, so a half-written one would come back as
+  // defaults and quietly plot with the wrong setup.
+  const tmp = `${APP_SETTINGS_FILE}.tmp`;
+  settingsWrite = settingsWrite
+    .then(() => writeFile(tmp, json))
+    .then(() => rename(tmp, APP_SETTINGS_FILE))
+    .catch(() => undefined);
 }
 
 /**
@@ -368,6 +409,7 @@ function snapshot(ws: WebSocket): Snapshot {
     paused: ctrl.isPaused,
     restoredNote,
     session,
+    appSettings,
   };
 }
 
@@ -437,6 +479,14 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
         break;
       case 'saveSession':
         saveSessionBlob(msg.session);
+        break;
+      case 'saveAppSettings':
+        saveAppSettings(msg.settings);
+        // Push to the *other* clients so every device shows one setup. Echoing
+        // it back to the sender would fight its own local edit (and loop).
+        for (const c of clients) {
+          if (c !== ws) send(c, { type: 'event', event: 'appSettings', payload: appSettings });
+        }
         break;
       case 'update':
         if (isPlotting()) {

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **App settings live on the gateway.** The machine setup (work area, pen Z, dwell,
+  feeds, PNG import defaults) is stored on the Pi rather than in one browser's
+  local storage, so every client of a plotter shares one setup, a change made on
+  the laptop reaches the phone without a reload, and clearing browser data or
+  switching device loses nothing. A gateway with no settings yet is seeded from
+  the first client that attaches — a tuned setup is never overwritten with
+  defaults — and one upgraded from an earlier release is seeded from the
+  calibration its stored session carried. New env var `PLOTTER_APP_SETTINGS`
+  (default `gateway/.app-settings.json`).
+
+### Changed
+
+- Machine calibration is no longer written into the shared artwork session. It is
+  still read from there, so an old session — or a new client talking to an old
+  daemon — keeps its tuned setup.
+
 ## [1.2.1] - 2026-09-08
 
 ### Changed

@@ -2,6 +2,7 @@ import { Emitter } from '../grbl/emitter';
 import type { Calibration } from '../grbl/settings';
 import type { GrblSettings, StatusReport } from '../grbl/types';
 import type { ClientCommand, ServerMessage, StreamDebug, UpdateStatus } from '../gateway/protocol';
+import { normalizeAppSettings, type AppSettings } from '../gateway/appSettings';
 
 type ClientEvents = {
   connected: { version: string };
@@ -18,6 +19,12 @@ type ClientEvents = {
   control: { inControl: boolean };
   /** The editable session stored on the daemon (null if none), sent on connect. */
   session: unknown;
+  /**
+   * App settings stored on the daemon: sent on connect (null = the daemon has
+   * none yet, so this client's settings should seed it) and whenever another
+   * client changes them.
+   */
+  appSettings: AppSettings | null;
   /** Installed/latest app version (for the version display + update banner). */
   versionInfo: { appVersion: string; latestVersion: string | null };
   /** Self-update progress/outcome. */
@@ -184,6 +191,10 @@ export class GatewayClient {
         if (s.restoredNote) this.events.emit('log', { dir: 'info', text: s.restoredNote });
         // Hand the daemon-stored session to the UI (it restores the artwork/page).
         this.events.emit('session', s.session ?? null);
+        // App settings after the session, so that on a daemon old enough to carry
+        // calibration in the session blob the newer, typed record still wins.
+        // Normalised here too: a pre-1.3 daemon sends no field at all.
+        this.events.emit('appSettings', s.appSettings ? normalizeAppSettings(s.appSettings) : null);
         // Continue a plot that was paused by a previous Disconnect-as-pause.
         if (s.paused) this.resume();
         break;
@@ -261,6 +272,10 @@ export class GatewayClient {
   /** Persist the editable session (artwork + page) on the daemon. Fire-and-forget. */
   saveSession(data: unknown): void {
     void this.cmd({ cmd: 'saveSession', session: data }).catch(() => undefined);
+  }
+  /** Persist app settings on the daemon; it pushes them to the other clients. */
+  saveAppSettings(settings: AppSettings): void {
+    void this.cmd({ cmd: 'saveAppSettings', settings }).catch(() => undefined);
   }
   pause(): void {
     void this.cmd({ cmd: 'pause' }).catch(() => undefined);
