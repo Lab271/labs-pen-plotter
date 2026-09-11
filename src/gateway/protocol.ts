@@ -52,6 +52,9 @@ export type ClientCommand =
   // plotter has one setup, so the daemon owns these and pushes changes to the
   // other clients — unlike the session, this is a typed, normalised record.
   | { cmd: 'saveAppSettings'; settings: AppSettings }
+  // Carry on after a pen change: the operator has loaded the pen the prompt
+  // named. Ignored unless the program is actually held at one.
+  | { cmd: 'continueProgram' }
   // Trigger a self-update to the latest release. Refused while a plot runs.
   | { cmd: 'update' };
 
@@ -84,6 +87,12 @@ export interface Snapshot {
    * with them, rather than adopting defaults over the operator's tuned setup.
    */
   appSettings: AppSettings | null;
+  /**
+   * The pen change the machine is waiting on, or null. In the snapshot so a
+   * client that attaches mid-job (or reloads) sees the prompt and can answer
+   * it — the job lives on the daemon, not in the tab that started it.
+   */
+  penChange: { index: number; label: string } | null;
 }
 
 /**
@@ -106,6 +115,8 @@ export interface ForwardedEvents {
   versionInfo: { appVersion: string; latestVersion: string | null };
   /** Daemon-originated: self-update progress/outcome. */
   updateStatus: UpdateStatus;
+  /** The program is held at a pen change; it continues on `continueProgram`. */
+  penChange: { index: number; label: string };
   /**
    * Daemon-originated: app settings changed (by another client). Sent to every
    * client except the one that saved them, so all clients show one setup.

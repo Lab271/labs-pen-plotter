@@ -38,6 +38,11 @@ unattended **Raspberry Pi** setup needs.
   page, then assign one per artwork. The canvas previews each artwork in its pen's colour
   and weight, so the page shows what the plot will look like — not uniform grey. The
   library is shared with every device; the assignment is saved with the drawing.
+- **Multi-pen plots.** A drawing using several pens plots as one job: everything for one
+  pen, then the machine parks at the work origin with the pen up and asks for the next one.
+  Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
+  streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
+  walk up with a phone, and the prompt is still there to answer.
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.

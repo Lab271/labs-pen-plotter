@@ -254,6 +254,10 @@ function isPlotting(): boolean {
     sd.inflight > 0 ||
     sd.queued > 0 ||
     ctrl.isPaused ||
+    // Held at a pen change: idle and empty-queued, but very much mid-job. An
+    // update here would restart the daemon and abort a plot that is only
+    // waiting for a hand.
+    ctrl.penChange !== null ||
     lastStatus?.state === 'Run' ||
     lastStatus?.state === 'Hold'
   );
@@ -351,6 +355,10 @@ ctrl.on('alarm', fwd('alarm'));
 ctrl.on('streamProgress', fwd('streamProgress'));
 ctrl.on('streamComplete', () => fwd('streamComplete')(undefined));
 ctrl.on('streamAborted', fwd('streamAborted'));
+ctrl.on('penChange', (e) => {
+  log(`pen change: load ${e.label || 'the next pen'}`);
+  fwd('penChange')(e);
+});
 ctrl.on('log', fwd('log'));
 
 // ---- connect with retry; never busy-reopen a present device ----
@@ -410,6 +418,7 @@ function snapshot(ws: WebSocket): Snapshot {
     restoredNote,
     session,
     appSettings,
+    penChange: ctrl.penChange,
   };
 }
 
@@ -479,6 +488,9 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
         break;
       case 'saveSession':
         saveSessionBlob(msg.session);
+        break;
+      case 'continueProgram':
+        ctrl.continueProgram();
         break;
       case 'saveAppSettings':
         saveAppSettings(msg.settings);

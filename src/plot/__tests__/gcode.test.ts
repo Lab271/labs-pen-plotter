@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { estimatePlotTime, formatDuration, generateGcode, PenOptions } from '../gcode';
+import {
+  estimatePlotTime,
+  formatDuration,
+  generateGcode,
+  generatePenGroupGcode,
+  PenOptions,
+} from '../gcode';
+import { PEN_CHANGE_PREFIX } from '../../grbl/program';
 import type { Polyline } from '../types';
 
 const OPTS: PenOptions = {
@@ -208,5 +215,94 @@ describe('formatDuration', () => {
     expect(formatDuration(750)).toBe('~12m 30s');
     expect(formatDuration(3600)).toBe('~1h 00m');
     expect(formatDuration(3840)).toBe('~1h 04m');
+  });
+});
+
+describe('generatePenGroupGcode', () => {
+  const opts = { penUpZ: 0, penDownZ: 3, dwellMs: 250, drawFeed: 1500, travelFeed: 5000 };
+  const square = (x: number): Polyline => [
+    { x, y: 0 },
+    { x: x + 5, y: 0 },
+  ];
+
+  it('emits one marker between consecutive groups, labelled with the pen to load', () => {
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Black 0.5', polylines: [square(0)] },
+        { label: 'Red 0.5', polylines: [square(10)] },
+        { label: 'Blue 0.5', polylines: [square(20)] },
+      ],
+      opts,
+    );
+    const markers = gc.filter((l) => l.startsWith(PEN_CHANGE_PREFIX));
+    // Two changes for three pens — the first pen is already in the holder.
+    expect(markers).toEqual([`${PEN_CHANGE_PREFIX}Red 0.5`, `${PEN_CHANGE_PREFIX}Blue 0.5`]);
+  });
+
+  it('parks at the work origin with the pen up before every pen change', () => {
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Black', polylines: [square(0)] },
+        { label: 'Red', polylines: [square(10)] },
+      ],
+      opts,
+    );
+    const at = gc.findIndex((l) => l.startsWith(PEN_CHANGE_PREFIX));
+    // Swapping a pen over the drawing would foul it; the machine goes home first.
+    expect(gc[at - 1]).toBe('G1 X0 Y0 F5000');
+    const zMoves = gc.slice(0, at).filter((l) => l.startsWith('G0 Z'));
+    expect(zMoves[zMoves.length - 1]).toBe('G0 Z0');
+  });
+
+  it('matches the single-pen program exactly when only one group draws', () => {
+    const polylines = [square(0), square(10)];
+    const single = generateGcode(polylines, opts);
+    expect(generatePenGroupGcode([{ label: 'Black', polylines }], opts)).toEqual(single);
+    // An empty group must not introduce a pen change for a pen that draws nothing.
+    expect(
+      generatePenGroupGcode(
+        [
+          { label: 'Black', polylines },
+          { label: 'Red', polylines: [] },
+          { label: 'Blue', polylines: [[{ x: 1, y: 1 }]] },
+        ],
+        opts,
+      ),
+    ).toEqual(single);
+  });
+
+  it('produces a valid empty program when nothing is drawable', () => {
+    expect(generatePenGroupGcode([], opts)).toEqual(generateGcode([], opts));
+  });
+
+  it('draws every group, and only its own strokes, between the markers', () => {
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Black', polylines: [square(0)] },
+        { label: 'Red', polylines: [square(100)] },
+      ],
+      opts,
+    );
+    const at = gc.findIndex((l) => l.startsWith(PEN_CHANGE_PREFIX));
+    expect(gc.slice(0, at).some((l) => l.includes('X5'))).toBe(true);
+    expect(gc.slice(0, at).some((l) => l.includes('X105'))).toBe(false);
+    expect(gc.slice(at).some((l) => l.includes('X105'))).toBe(true);
+  });
+
+  it('is costed by the time estimate like any other program', () => {
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Black', polylines: [square(0)] },
+        { label: 'Red', polylines: [square(100)] },
+      ],
+      opts,
+    );
+    // The marker is a comment: it carries no motion, so it must not break the
+    // estimator's parse or add time of its own.
+    expect(estimatePlotTime(gc)).toBeGreaterThan(0);
+    expect(estimatePlotTime(gc)).toBeCloseTo(
+      estimatePlotTime(gc.filter((l) => !l.startsWith(PEN_CHANGE_PREFIX))),
+      6,
+    );
   });
 });

@@ -10,7 +10,7 @@ import { StepPicker } from './StepPicker';
 import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { applyDetail } from '../plot/detail';
-import { estimatePlotTime, formatDuration, generateGcode } from '../plot/gcode';
+import { estimatePlotTime, formatDuration, generatePenGroupGcode } from '../plot/gcode';
 import {
   actualSizePlacement,
   anchorPlacement,
@@ -109,6 +109,9 @@ export function App() {
   const ackChangedAtRef = useRef(0);
   const stallHandledRef = useRef(false);
   const pausedRef = useRef(false);
+  // Held at a pen change: the machine is deliberately Idle with no progress, so
+  // the stall watchdog must not read it as a wedged plot and stop the job.
+  const penChangeRef = useRef(false);
   const totalRef = useRef(0);
 
   // Diagnostic log: a ring buffer kept in a ref (no re-render on write) plus a
@@ -184,6 +187,9 @@ export function App() {
   const [plotting, setPlotting] = useState(false);
   // Plotting-speed override (% of programmed feed); applied live via the daemon.
   const [speedPct, setSpeedPct] = useState(100);
+  // The pen the machine is waiting for, or null. Comes from the daemon (snapshot
+  // or event), so any client — including one that just attached — can answer it.
+  const [penChange, setPenChange] = useState<{ index: number; label: string } | null>(null);
   // Don't push to the daemon until we've synced with its stored session on connect
   // (avoids a stale local push overwriting a newer session from another device).
   const sessionLoadedRef = useRef(false);
@@ -252,6 +258,7 @@ export function App() {
           if (
             !stallHandledRef.current &&
             !pausedRef.current &&
+            !penChangeRef.current &&
             s.state === 'Idle' &&
             Date.now() - ackChangedAtRef.current > STALL_MS
           ) {
@@ -282,9 +289,16 @@ export function App() {
           ackChangedAtRef.current = Date.now();
         }
       }),
+      ctrl.on('penChange', (e) => {
+        penChangeRef.current = !!e;
+        setPenChange(e);
+        if (e) pushLog('SYS', `pen change — load ${e.label || 'the next pen'}`);
+      }),
       ctrl.on('streamComplete', () => {
         plottingRef.current = false;
         setPlotting(false);
+        penChangeRef.current = false;
+        setPenChange(null);
         setProgress(null);
         setProgressFrac(1);
         setAlert('Plot complete.');
@@ -293,6 +307,8 @@ export function App() {
       ctrl.on('streamAborted', (e) => {
         plottingRef.current = false;
         setPlotting(false);
+        penChangeRef.current = false;
+        setPenChange(null);
         setProgress(null);
         setAlert(`Stream aborted: ${e.reason}`);
         pushLog('ABORT', e.reason);
@@ -587,6 +603,7 @@ export function App() {
           placement: i.placement,
           w: i.widthMm,
           h: i.heightMm,
+          penId: p.id,
           penColor: p.color,
           penWidthMm: p.widthMm,
         };
@@ -595,21 +612,41 @@ export function App() {
   );
   const selectedStrokes = displayItems.find((d) => d.id === selectedId)?.polylines.length ?? 0;
 
+  // The placed geometry, grouped by pen and ordered by the pen library — so the
+  // sequence of colours is predictable (and reorderable, by reordering the
+  // library) rather than depending on the order artwork happened to be imported.
+  const penGroups = useMemo(() => {
+    const byPen = new Map<string, Polyline[]>();
+    for (const i of displayItems) {
+      const placed = placePolylines(i.polylines, i.placement);
+      byPen.set(i.penId, (byPen.get(i.penId) ?? []).concat(placed));
+    }
+    return pens
+      .filter((pen) => byPen.has(pen.id))
+      .map((pen) => ({ label: pen.name, polylines: byPen.get(pen.id)! }));
+  }, [displayItems, pens]);
+
+  // The program that Plot sends — built here so the time estimate is costed on
+  // exactly the G-code that will run, pen changes and all.
+  const program = useMemo(
+    () =>
+      generatePenGroupGcode(penGroups, {
+        penUpZ: cal.penUpZ,
+        penDownZ: cal.penDownZ,
+        dwellMs: cal.penDwellMs,
+        drawFeed: cal.drawFeed,
+        travelFeed: cal.travelFeed,
+      }),
+    [penGroups, cal],
+  );
+
   // Estimated total plot time for the currently placed artwork (recomputed when
-  // the artwork, layout, or feeds change). Walks the program the same placement
-  // would generate, so it reflects the feeds, segment count, and stroke order.
-  const totalEstSec = useMemo(() => {
-    if (displayItems.length === 0) return 0;
-    const placed = displayItems.flatMap((i) => placePolylines(i.polylines, i.placement));
-    const gc = generateGcode(placed, {
-      penUpZ: cal.penUpZ,
-      penDownZ: cal.penDownZ,
-      dwellMs: cal.penDwellMs,
-      drawFeed: cal.drawFeed,
-      travelFeed: cal.travelFeed,
-    });
-    return estimatePlotTime(gc, motion);
-  }, [displayItems, cal, motion]);
+  // the artwork, layout, or feeds change). Walks the program that will actually
+  // be sent, so it reflects the feeds, segment count, and stroke order.
+  const totalEstSec = useMemo(
+    () => (displayItems.length === 0 ? 0 : estimatePlotTime(program, motion)),
+    [displayItems.length, program, motion],
+  );
 
   const updatePlacement = useCallback((id: string, pl: Placement) => {
     setItems((list) => list.map((i) => (i.id === id ? { ...i, placement: pl } : i)));
@@ -739,18 +776,11 @@ export function App() {
       setAlert('Artwork is outside the work area — scale or move it to fit before plotting.');
       return;
     }
-    const gc = generateGcode(placed, penOptions());
-    startProgram(gc, `plot start — ${gc.length} G-code lines, ${displayItems.length} artwork(s)`);
-  }
-
-  function penOptions() {
-    return {
-      penUpZ: cal.penUpZ,
-      penDownZ: cal.penDownZ,
-      dwellMs: cal.penDwellMs,
-      drawFeed: cal.drawFeed,
-      travelFeed: cal.travelFeed,
-    };
+    startProgram(
+      program,
+      `plot start — ${program.length} G-code lines, ${displayItems.length} artwork(s), ` +
+        `${penGroups.length} pen(s)`,
+    );
   }
 
   function startProgram(gc: string[], logLine: string) {
@@ -820,6 +850,25 @@ export function App() {
             );
           }}
           onCancel={() => setWizardFor(null)}
+        />
+      )}
+      {penChange && (
+        <PenChangePrompt
+          label={penChange.label}
+          color={pens.find((pen) => pen.name === penChange.label)?.color}
+          done={progress ? `${Math.round(fracDone * 100)}%` : ''}
+          onContinue={() => {
+            // Clear locally at once so the prompt cannot be answered twice; the
+            // daemon ignores a stray continue anyway, but two clients both
+            // pressing it should not leave one of them showing a stale prompt.
+            penChangeRef.current = false;
+            ackChangedAtRef.current = Date.now(); // fresh stall window after the swap
+            setPenChange(null);
+            pushLog('SYS', 'pen change confirmed — continuing');
+            void ctrl()
+              ?.continueProgram()
+              .catch((e) => setAlert(String((e as Error).message ?? e)));
+          }}
         />
       )}
       {showSettings && (
@@ -1396,6 +1445,51 @@ export function App() {
         </div>
         {alert && <span className="text-red-600">{alert}</span>}
       </footer>
+    </div>
+  );
+}
+
+/**
+ * Blocks the screen while the machine waits for a pen. It is modal on purpose:
+ * the job is halted with the carriage parked, nothing else in the app can
+ * usefully be done, and the one thing that matters is that the operator loads
+ * the named pen before pressing Continue.
+ */
+function PenChangePrompt(props: {
+  label: string;
+  color?: string;
+  done: string;
+  onContinue: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Load the next pen"
+    >
+      <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
+        <h2 className="text-sm font-semibold">Load the next pen</h2>
+        <p className="mt-2 flex items-center gap-2 text-sm">
+          {props.color && (
+            <span
+              className="h-4 w-4 shrink-0 rounded-full border border-slate-300"
+              style={{ backgroundColor: props.color }}
+            />
+          )}
+          <span className="font-semibold">{props.label || 'the next pen'}</span>
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          The carriage is parked at the work origin with the pen up. Swap the pen, then continue —
+          the plot picks up exactly where it stopped.
+          {props.done ? ` ${props.done} of the job is drawn.` : ''}
+        </p>
+        <div className="mt-4 flex justify-end">
+          <button className={btnPrimary} onClick={props.onContinue}>
+            Pen loaded — continue
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
