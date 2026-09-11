@@ -1,8 +1,5 @@
-# responsive-control Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change mobile-remote-control. Update Purpose after archive.
-## Requirements
 ### Requirement: Phone control view
 
 On phone-sized screens the web app SHALL present a clean, touch-friendly layout focused on running
@@ -39,13 +36,3 @@ require horizontal scrolling.
 - **WHEN** the app is opened on a wide screen
 - **THEN** the existing three-column editor layout is presented unchanged, with the machine setup on
   the settings page rather than in the right-hand column
-
-### Requirement: Run plot controls from the phone
-
-From the phone view the operator SHALL be able to control a plot running on the daemon — Pause, Resume, Stop — and jog/home the machine, with live status reflecting the result.
-
-#### Scenario: Halting a plot from a phone
-
-- **WHEN** a plot is running and the operator uses the phone view to pause, resume, or stop it
-- **THEN** the command takes effect on the daemon-driven plot and the view's live state and progress update accordingly
-

@@ -29,6 +29,7 @@ import {
   normalizeControls,
 } from '../plot/controls';
 import { PlotCanvas } from './PlotCanvas';
+import { SettingsPage } from './SettingsPage';
 import { Logo } from './Logo';
 import type { UpdateStatus } from '../gateway/protocol';
 import type { AppSettings } from '../gateway/appSettings';
@@ -136,6 +137,9 @@ export function App() {
   // Machine motion limits read from GRBL settings ($120/$121 accel, $11 junction
   // deviation), used to estimate plot time with realistic accel/cornering.
   const [motion, setMotion] = useState<{ accel?: number; jdev?: number }>({});
+  // The controller's own `$$` settings, shown read-only on the Settings page.
+  const [grbl, setGrbl] = useState<GrblSettings>({});
+  const [showSettings, setShowSettings] = useState(false);
   const [alert, setAlert] = useState('');
   // App settings (machine setup + preferences) live on the daemon so every
   // client of one plotter shares them. What's loaded here is the local cache:
@@ -198,10 +202,14 @@ export function App() {
         setConnected(true);
         setVersion(e.version);
         setMotion(readMotion(ctrl.settings)); // settings arrive with the snapshot
+        setGrbl(ctrl.settings);
         setAlert('');
         pushLog('SYS', `connected — GRBL ${e.version}`);
       }),
-      ctrl.on('settings', (s) => setMotion(readMotion(s))),
+      ctrl.on('settings', (s) => {
+        setMotion(readMotion(s));
+        setGrbl(s);
+      }),
       ctrl.on('versionInfo', (e) => {
         setAppVersion(e.appVersion);
         setLatestVersion(e.latestVersion);
@@ -771,6 +779,25 @@ export function App() {
           onCancel={() => setWizardFor(null)}
         />
       )}
+      {showSettings && (
+        <SettingsPage
+          cal={cal}
+          onCalField={setCalField}
+          grbl={grbl}
+          connected={connected}
+          firmwareVersion={version}
+          appVersion={appVersion}
+          latestVersion={latestVersion}
+          updateAvailable={updateAvailable}
+          plotting={plotting}
+          onUpdate={() =>
+            void ctrl()
+              ?.update()
+              .catch(() => undefined)
+          }
+          onClose={() => setShowSettings(false)}
+        />
+      )}
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-4 py-2 shadow-sm md:gap-3">
         <Logo className="h-4 w-auto" />
@@ -846,6 +873,14 @@ export function App() {
               <option value="portrait">Portrait</option>
             </select>
           )}
+          <button
+            className={btn}
+            title="Settings — machine, pen, feeds, import defaults"
+            aria-label="Settings"
+            onClick={() => setShowSettings(true)}
+          >
+            ⚙
+          </button>
           <button
             className={btnPrimary}
             disabled={!connected || items.length === 0}
@@ -1100,46 +1135,7 @@ export function App() {
               )}
             </Section>
 
-            <Section title="Pen & feeds" className="hidden md:block">
-              <NumberField
-                label="Pen-down Z"
-                value={cal.penDownZ}
-                step={0.1}
-                onChange={setCalField('penDownZ')}
-              />
-              <NumberField
-                label="Pen-up Z"
-                value={cal.penUpZ}
-                step={0.1}
-                onChange={setCalField('penUpZ')}
-              />
-              <NumberField
-                label="Dwell (ms)"
-                value={cal.penDwellMs}
-                step={10}
-                onChange={setCalField('penDwellMs')}
-              />
-              <NumberField
-                label="Draw feed"
-                value={cal.drawFeed}
-                step={100}
-                onChange={setCalField('drawFeed')}
-              />
-              <NumberField
-                label="Travel feed"
-                value={cal.travelFeed}
-                step={100}
-                onChange={setCalField('travelFeed')}
-              />
-              <NumberField
-                label="Jog feed"
-                value={cal.jogFeed}
-                step={100}
-                onChange={setCalField('jogFeed')}
-              />
-            </Section>
-
-            <Section title="Drawing controls" className="hidden md:block">
+            <Section title="Drawing controls" collapsible>
               {!selectedItem && (
                 <p className="text-xs text-slate-500">Select an artwork to fine-tune its look.</p>
               )}
@@ -1328,34 +1324,36 @@ export function App() {
 const transportBtn =
   'rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40 md:px-2 md:py-1 md:text-xs';
 
-function Section(props: { title: string; children: React.ReactNode; className?: string }) {
+/**
+ * A panel on the main page. `collapsible` starts it closed: the per-artwork
+ * drawing controls are wanted next to the artwork but not in the way of the
+ * job, and closed-by-default is also what makes them usable on a phone, where
+ * the whole control strip is half the screen.
+ */
+function Section(props: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+  collapsible?: boolean;
+}) {
+  const [open, setOpen] = useState(!props.collapsible);
+  const heading = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
   return (
     <section className={`mb-4 ${props.className ?? ''}`}>
-      <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {props.title}
-      </h2>
-      {props.children}
+      {props.collapsible ? (
+        <button
+          className={`mb-1.5 flex w-full items-center gap-1 ${heading}`}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="text-[10px]">{open ? '▾' : '▸'}</span>
+          {props.title}
+        </button>
+      ) : (
+        <h2 className={`mb-1.5 ${heading}`}>{props.title}</h2>
+      )}
+      {(!props.collapsible || open) && props.children}
     </section>
-  );
-}
-
-function NumberField(props: {
-  label: string;
-  value: number;
-  step?: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="mb-1 flex items-center justify-between gap-2">
-      <span className="text-xs text-slate-600">{props.label}</span>
-      <input
-        type="number"
-        className={`${field} w-20`}
-        value={props.value}
-        step={props.step ?? 1}
-        onChange={(e) => props.onChange(Number(e.target.value))}
-      />
-    </label>
   );
 }
 

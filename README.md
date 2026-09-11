@@ -43,11 +43,16 @@ unattended **Raspberry Pi** setup needs.
 - **Streaming with live feedback.** Progress bar, live machine state and position,
   pause/resume, and stop-and-return-home. A stall watchdog and a dead-link watchdog abort
   a plot that hangs, and a diagnostic log panel keeps the last events.
-- **Manual control.** Jog, pen up/down, set work zero, go to work zero, motors off, view
-  the raw `$$` settings, a live feed-rate override, and per-axis calibration (pen Z,
-  dwell, feed rates).
-- **Session persistence.** Your artwork and page layout are stored on the daemon, so any
-  device that connects gets the current drawing back. Calibration is stored per browser.
+- **Manual control.** Jog, pen up/down, set work zero, go to work zero, motors off, and a
+  live feed-rate override.
+- **Settings page.** The gear in the header opens everything that is configured once: work
+  area, pen-down/up Z, dwell, the draw/travel/jog feeds, image-import defaults, the
+  connection and version info, and a read-only view of the controller's raw `$$` settings.
+  Changes apply immediately — there is no save step.
+- **Everything is shared with every device.** Your artwork and page layout are stored on
+  the daemon, so any device that connects gets the current drawing back — and so is the
+  machine setup, so a plot started from a phone uses the feeds tuned on the laptop.
+  Clearing browser data or switching device loses neither.
 
 ## How it works
 

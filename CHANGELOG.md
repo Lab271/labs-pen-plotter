@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Settings page** behind the gear in the header: work area, pen-down/up Z, dwell,
+  the draw/travel/jog feeds, image-import defaults, connection/version info, and a
+  read-only view of the controller's `$$` settings. The main page is now the job —
+  artwork, canvas, jog, home, registration, plot — and the machine setup, which a
+  phone could not reach at all before (`hidden md:block`), is reachable from any
+  screen size. Changes apply immediately; there is no save step.
+
 - **App settings live on the gateway.** The machine setup (work area, pen Z, dwell,
   feeds, PNG import defaults) is stored on the Pi rather than in one browser's
   local storage, so every client of a plotter shares one setup, a change made on
@@ -21,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Per-artwork **drawing controls** are collapsed by default and available on a phone.
+  They stay beside the artwork rather than moving to Settings: their values belong to
+  one artwork and are saved with the session.
 - Machine calibration is no longer written into the shared artwork session. It is
   still read from there, so an old session — or a new client talking to an old
   daemon — keeps its tuned setup.
