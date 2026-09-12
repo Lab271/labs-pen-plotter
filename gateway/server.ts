@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, rename, readdir, mkdir, unlink, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,14 @@ import { GrblController } from '../src/grbl/GrblController';
 import { NodeSerialTransport } from './NodeSerialTransport';
 import { isOriginAllowed, parseAllowedOrigins } from './origin';
 import { DEFAULT_GATEWAY_PORT } from '../src/gateway/protocol';
-import type { ClientMessage, Snapshot, StreamDebug, UpdateStatus } from '../src/gateway/protocol';
+import type {
+  ClientMessage,
+  ProjectSummary,
+  Snapshot,
+  StreamDebug,
+  UpdateStatus,
+} from '../src/gateway/protocol';
+import { projectFileName, sanitizeProjectName } from '../src/plot/project';
 import {
   appSettingsFromLegacySession,
   normalizeAppSettings,
@@ -47,6 +54,10 @@ const SESSION_FILE =
 const APP_SETTINGS_FILE =
   process.env.PLOTTER_APP_SETTINGS ??
   join(fileURLToPath(new URL('.', import.meta.url)), '.app-settings.json');
+// Saved projects live on the Pi so it holds a library of plots any client can
+// open — one file per project, in a directory of their own.
+const PROJECTS_DIR =
+  process.env.PLOTTER_PROJECTS ?? join(fileURLToPath(new URL('.', import.meta.url)), 'projects');
 
 // ---- self-update config ----
 // Where the update oneshot records its progress; the daemon reads it back after
@@ -164,6 +175,47 @@ function saveAppSettings(raw: unknown) {
     .then(() => writeFile(tmp, json))
     .then(() => rename(tmp, APP_SETTINGS_FILE))
     .catch(() => undefined);
+}
+
+// ---- stored projects ----
+const PROJECT_SUFFIX = '.plot.json';
+
+/** List stored projects, newest first. Never throws: a missing directory is empty. */
+async function listProjects(): Promise<ProjectSummary[]> {
+  try {
+    const names = await readdir(PROJECTS_DIR);
+    const out: ProjectSummary[] = [];
+    for (const file of names) {
+      if (!file.endsWith(PROJECT_SUFFIX)) continue;
+      const info = await stat(join(PROJECTS_DIR, file)).catch(() => null);
+      out.push({
+        name: file.slice(0, -PROJECT_SUFFIX.length),
+        savedAt: info ? info.mtime.toISOString() : '',
+      });
+    }
+    return out.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The path a project is stored at, or null if the name is unusable.
+ *
+ * The name arrives over the WebSocket, so it is sanitised (shared with the
+ * client, and unit-tested there) and then checked *again* against the resolved
+ * path: defence in depth, because this is the one place a remote string
+ * becomes a filesystem path on the Pi.
+ */
+function projectPath(name: string): string | null {
+  const safe = sanitizeProjectName(name);
+  if (!safe) return null;
+  const path = join(PROJECTS_DIR, projectFileName(safe));
+  return path.startsWith(PROJECTS_DIR + '/') ? path : null;
+}
+
+async function broadcastProjects(): Promise<void> {
+  broadcast({ type: 'event', event: 'projects', payload: await listProjects() });
 }
 
 /**
@@ -419,8 +471,14 @@ function snapshot(ws: WebSocket): Snapshot {
     session,
     appSettings,
     penChange: ctrl.penChange,
+    // Filled in by the caller: listing the directory is async, and a snapshot
+    // has to be ready the moment a client attaches.
+    projects: knownProjects,
   };
 }
+
+// Cached listing, refreshed whenever a project is written or removed.
+let knownProjects: ProjectSummary[] = [];
 
 function releaseControlOnClose(ws: WebSocket) {
   clients.delete(ws);
@@ -492,6 +550,53 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
       case 'continueProgram':
         ctrl.continueProgram();
         break;
+      case 'saveProject': {
+        const path = projectPath(msg.name);
+        if (!path) {
+          send(ws, { type: 'cmdError', id, message: 'That project name cannot be used.' });
+          return;
+        }
+        await mkdir(PROJECTS_DIR, { recursive: true });
+        // Atomic: a project half-written by a power cut would be unopenable,
+        // and the operator would not know until they came to plot it.
+        const tmp = `${path}.tmp`;
+        await writeFile(tmp, JSON.stringify(msg.project));
+        await rename(tmp, path);
+        knownProjects = await listProjects();
+        await broadcastProjects();
+        break;
+      }
+      case 'loadProject': {
+        const path = projectPath(msg.name);
+        if (!path) {
+          send(ws, { type: 'cmdError', id, message: 'No such project.' });
+          return;
+        }
+        const raw = await readFile(path, 'utf8').catch(() => null);
+        if (raw === null) {
+          send(ws, { type: 'cmdError', id, message: `No project named "${msg.name}".` });
+          return;
+        }
+        // Only to the client that asked: opening a project replaces what is on
+        // screen, which is not something to do to another operator's session.
+        send(ws, {
+          type: 'event',
+          event: 'projectLoaded',
+          payload: { name: msg.name, project: JSON.parse(raw) },
+        });
+        break;
+      }
+      case 'deleteProject': {
+        const path = projectPath(msg.name);
+        if (!path) {
+          send(ws, { type: 'cmdError', id, message: 'No such project.' });
+          return;
+        }
+        await unlink(path).catch(() => undefined);
+        knownProjects = await listProjects();
+        await broadcastProjects();
+        break;
+      }
       case 'saveAppSettings':
         saveAppSettings(msg.settings);
         // Push to the *other* clients so every device shows one setup. Echoing
@@ -624,6 +729,10 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     void transport.close().finally(() => process.exit(0));
   });
 }
+
+void listProjects().then((list) => {
+  knownProjects = list;
+});
 
 httpServer.listen(PORT, HOST, () => {
   log(`PenPlotter271 gateway v${APP_VERSION}`);

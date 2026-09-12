@@ -1,7 +1,13 @@
 import { Emitter } from '../grbl/emitter';
 import type { Calibration } from '../grbl/settings';
 import type { GrblSettings, StatusReport } from '../grbl/types';
-import type { ClientCommand, ServerMessage, StreamDebug, UpdateStatus } from '../gateway/protocol';
+import type {
+  ClientCommand,
+  ProjectSummary,
+  ServerMessage,
+  StreamDebug,
+  UpdateStatus,
+} from '../gateway/protocol';
 import { normalizeAppSettings, type AppSettings } from '../gateway/appSettings';
 
 type ClientEvents = {
@@ -34,6 +40,10 @@ type ClientEvents = {
    * snapshot too, so a client that attaches mid-job can answer the prompt.
    */
   penChange: { index: number; label: string } | null;
+  /** Projects stored on the daemon (sent on attach and whenever they change). */
+  projects: ProjectSummary[];
+  /** A project this client asked for. */
+  projectLoaded: { name: string; project: unknown };
 };
 
 /**
@@ -201,6 +211,7 @@ export class GatewayClient {
         // Normalised here too: a pre-1.3 daemon sends no field at all.
         this.events.emit('appSettings', s.appSettings ? normalizeAppSettings(s.appSettings) : null);
         this.events.emit('penChange', s.penChange ?? null);
+        this.events.emit('projects', s.projects ?? []);
         // Continue a plot that was paused by a previous Disconnect-as-pause.
         if (s.paused) this.resume();
         break;
@@ -319,6 +330,17 @@ export class GatewayClient {
   }
   async setSetting(num: number, value: number): Promise<void> {
     await this.cmd({ cmd: 'setSetting', num, value });
+  }
+  /** Store a project on the daemon, so the Pi holds the library. */
+  async saveProject(name: string, project: unknown): Promise<void> {
+    await this.cmd({ cmd: 'saveProject', name, project });
+  }
+  /** Ask for a stored project; it arrives as a `projectLoaded` event. */
+  async loadProject(name: string): Promise<void> {
+    await this.cmd({ cmd: 'loadProject', name });
+  }
+  async deleteProject(name: string): Promise<void> {
+    await this.cmd({ cmd: 'deleteProject', name });
   }
   /** Carry on after a pen change, once the operator has loaded the pen. */
   async continueProgram(): Promise<void> {

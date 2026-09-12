@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Save and load projects.** A versioned project file holds the whole job — objects,
+  placements, pens per object, paper, mode and magnets — plus the pen library it refers to,
+  so a drawing opened on another machine still comes out in the right colours. Save to your
+  own device as a file, or to the plotter, which now keeps a library every connected client
+  can list, open and delete (`PLOTTER_PROJECTS`, default `gateway/projects/`). Project names
+  are sanitised before they become paths on the Pi, and the resolved path is checked against
+  the projects directory as well.
 - **Import from anything.** One import that identifies a file by its *contents* rather than
   its name — operators rename files, and a phone hands over an `image.jpg` that is really
   HEIC. **PDF** is now a first-class source: a vector page imports as lines at the size the

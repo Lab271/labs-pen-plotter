@@ -26,10 +26,10 @@ export default defineConfig({
       // ratchets against regressions rather than blocking today's work.
       // Raise these as coverage improves; never lower them to make CI pass.
       thresholds: {
-        statements: 50,
-        branches: 48,
-        functions: 40,
-        lines: 50,
+        statements: 72,
+        branches: 68,
+        functions: 62,
+        lines: 72,
       },
     },
   },
