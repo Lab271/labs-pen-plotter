@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-12
+
 ### Added
 
 - **Save and load projects.** A versioned project file holds the whole job — objects,
   placements, pens per object, paper, mode and magnets — plus the pen library it refers to,
   so a drawing opened on another machine still comes out in the right colours. Save to your
   own device as a file, or to the plotter, which now keeps a library every connected client
-  can list, open and delete (`PLOTTER_PROJECTS`, default `gateway/projects/`). Project names
+  can list, open and delete (`PLOTTER_PROJECTS`, defaulting to a `projects/` directory beside the state file). Project names
   are sanitised before they become paths on the Pi, and the resolved path is checked against
   the projects directory as well.
 - **Import from anything.** One import that identifies a file by its *contents* rather than
@@ -28,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- App settings and saved projects defaulted to paths beside the *bundle* rather than
+  beside the state file. On a packaged Pi that is a read-only `/opt`, and the config file
+  naming the right paths is a dpkg conffile — so an upgraded machine whose operator had
+  edited it would have kept the old copy, never learned the new variables, and silently
+  failed to persist either. Both now default to the state file's directory, which has been
+  configured since the first packaged release (as the update-status file already did).
 - The daemon served `.mjs` as `application/octet-stream`, which browsers refuse to execute as
   a module — a lazily-loaded chunk would have worked in the dev server and failed only in the
   packaged build. `.wasm` and `.map` were missing too.

@@ -182,8 +182,8 @@ On macOS the daemon automatically runs `caffeinate -dimsu` for its lifetime so i
 | `PLOTTER_PATH` | _(auto)_ | Pin the serial device; otherwise auto-detect a `usbserial`/`wchusbserial`/`ttyUSB`/`ttyACM` port |
 | `PLOTTER_STATE` | `gateway/.plotter-state.json` | Where the remembered position is persisted |
 | `PLOTTER_SESSION` | `gateway/.session.json` | Where the shared editable session (artwork + page) is persisted |
-| `PLOTTER_APP_SETTINGS` | `gateway/.app-settings.json` | Where app settings (machine setup, preferences) are persisted — shared by every client |
-| `PLOTTER_PROJECTS` | `gateway/projects/` | Where saved projects are stored, one file per project |
+| `PLOTTER_APP_SETTINGS` | _(beside `PLOTTER_STATE`)_ | Where app settings (machine setup, preferences) are persisted — shared by every client |
+| `PLOTTER_PROJECTS` | _(`projects/` beside `PLOTTER_STATE`)_ | Where saved projects are stored, one file per project |
 | `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes; add `http://localhost:5173` when driving a live daemon from the Vite dev server |
 
 ## Registration (cut to a printed sticker)
