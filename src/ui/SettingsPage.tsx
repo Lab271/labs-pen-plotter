@@ -263,6 +263,29 @@ export function SettingsPage(p: SettingsPageProps) {
               step={0.05}
               onChange={p.onKnife('bladeOffsetMm')}
             />
+            <NumberField
+              label="Holding tabs"
+              value={p.knife.tabCount}
+              step={1}
+              onChange={p.onKnife('tabCount')}
+            />
+            <NumberField
+              label="Tab width (mm)"
+              value={p.knife.tabWidthMm}
+              step={0.1}
+              onChange={p.onKnife('tabWidthMm')}
+            />
+            <NumberField
+              label="No tabs under (mm)"
+              value={p.knife.minContourMm}
+              step={5}
+              onChange={p.onKnife('minContourMm')}
+            />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Tabs are short uncut bridges that keep each piece attached to the sheet until you snap
+              it out — 0 cuts every piece free as it finishes. They are placed away from corners,
+              where a bridge tears instead of snapping.
+            </p>
             <p className="mt-1 text-[10px] text-slate-400">
               Overcut carries the blade past the closing point so the loop releases. Blade offset is
               how far the tip trails the holder's pivot (typically 0.25–0.5 mm); leave it at 0 until

@@ -58,8 +58,11 @@ unattended **Raspberry Pi** setup needs.
   the **knife profile** (its own Z, dwell and cut feed), places imports **1:1** at the
   position the file gives them, offers only outline conversions (a fill would shred a
   sticker), previews in cut red, and prepares the toolpath for a drag knife — an
-  **overcut** past the closing point so the piece releases, and optional **blade-offset
-  compensation** at corners (off until you've measured your holder).
+  **overcut** past the closing point so the piece releases, optional **blade-offset
+  compensation** at corners (off until you've measured your holder), and **holding tabs** —
+  short uncut bridges that keep each piece attached until you snap it out, placed away from
+  corners and clear of the overcut. The canvas shows the path the blade will follow, gaps
+  and all.
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.

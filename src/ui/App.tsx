@@ -896,6 +896,15 @@ export function App() {
     });
   }, [penGroups, cal, cutting, knife, magnets]);
 
+  // What the blade will actually follow: the overcut tail and the gaps the
+  // holding tabs leave. Shown only in cutting mode, where those are the details
+  // that decide whether a sheet comes out usable.
+  const cutPreview = useMemo(
+    () =>
+      cutting && placedPolylines.length > 0 ? prepareForCut(placedPolylines, knife) : undefined,
+    [cutting, placedPolylines, knife],
+  );
+
   // Travel legs, shown on the canvas only where a magnet forces a detour —
   // drawing every pen-up move all the time would bury the artwork in dashes.
   const travelPreview = useMemo(() => {
@@ -1493,6 +1502,7 @@ export function App() {
                 magnetsHit={hitMagnets.map((m) => m.id)}
                 onMagnetMove={plotting ? undefined : moveMagnet}
                 travel={travelPreview}
+                cutPath={cutPreview}
                 artworks={displayItems}
                 selectedIds={selectedIds}
                 onSelect={selectObject}
