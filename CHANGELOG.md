@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Editing toolbar and a real scene model.** Multi-selection (click, Shift-click, or a
+  rubber band across the page), moving a whole selection at once, copy/paste/duplicate/
+  delete, stacking order, and the keyboard shortcuts for all of it. The operations that
+  are easy to get subtly wrong — what a band catches, where a paste lands, how a block of
+  selected objects reorders — are pure functions in `src/plot/scene.ts` with tests.
 - **Multi-pen plotting with pen-change pauses.** Artwork is grouped by pen (in pen-library
   order, so the sequence is predictable and reorderable) and plotted as one job that stops
   between pens. The machine parks at the work origin with the pen up, the app names the pen
@@ -42,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults — and one upgraded from an earlier release is seeded from the
   calibration its stored session carried. New env var `PLOTTER_APP_SETTINGS`
   (default `gateway/.app-settings.json`).
+
+### Fixed
+
+- The canvas measured itself only through a `ResizeObserver`, whose delivery is throttled
+  in a hidden tab — a backgrounded tab (a phone left watching a plot) could come back to an
+  empty page. It now measures once on mount as well.
 
 ### Changed
 
