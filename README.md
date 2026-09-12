@@ -53,6 +53,9 @@ unattended **Raspberry Pi** setup needs.
   Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
   streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
   walk up with a phone, and the prompt is still there to answer.
+- **Save and open projects.** A project is the whole job — objects, placements, pens, paper,
+  mode and magnets, plus the pens it refers to. Keep it as a file on your own machine, or
+  store it on the plotter, where it joins a library every connected device can see and open.
 - **Magnets.** The bed has no vacuum, so tell the app where the hold-down magnets are:
   they're drawn as keep-out circles you can drag, **Suggest** offers clear positions at the
   sheet's edges, and **pen-up travel is routed around them** — the detour is drawn on the
@@ -180,6 +183,7 @@ On macOS the daemon automatically runs `caffeinate -dimsu` for its lifetime so i
 | `PLOTTER_STATE` | `gateway/.plotter-state.json` | Where the remembered position is persisted |
 | `PLOTTER_SESSION` | `gateway/.session.json` | Where the shared editable session (artwork + page) is persisted |
 | `PLOTTER_APP_SETTINGS` | `gateway/.app-settings.json` | Where app settings (machine setup, preferences) are persisted — shared by every client |
+| `PLOTTER_PROJECTS` | `gateway/projects/` | Where saved projects are stored, one file per project |
 | `GATEWAY_ALLOWED_ORIGINS` | _(none)_ | Extra browser origins allowed to open the WebSocket, comma-separated. Same-origin always passes; add `http://localhost:5173` when driving a live daemon from the Vite dev server |
 
 ## Registration (cut to a printed sticker)

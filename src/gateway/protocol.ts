@@ -55,6 +55,11 @@ export type ClientCommand =
   // Carry on after a pen change: the operator has loaded the pen the prompt
   // named. Ignored unless the program is actually held at one.
   | { cmd: 'continueProgram' }
+  // Projects stored on the daemon, so the Pi holds a library of plots that any
+  // client can open. The payload is opaque here, like the session.
+  | { cmd: 'saveProject'; name: string; project: unknown }
+  | { cmd: 'loadProject'; name: string }
+  | { cmd: 'deleteProject'; name: string }
   // Trigger a self-update to the latest release. Refused while a plot runs.
   | { cmd: 'update' };
 
@@ -93,6 +98,15 @@ export interface Snapshot {
    * it — the job lives on the daemon, not in the tab that started it.
    */
   penChange: { index: number; label: string } | null;
+  /** Projects stored on the daemon, newest first. */
+  projects: ProjectSummary[];
+}
+
+/** What the client needs to list a stored project without loading it. */
+export interface ProjectSummary {
+  name: string;
+  /** ISO timestamp of the last save. */
+  savedAt: string;
 }
 
 /**
@@ -117,6 +131,10 @@ export interface ForwardedEvents {
   updateStatus: UpdateStatus;
   /** The program is held at a pen change; it continues on `continueProgram`. */
   penChange: { index: number; label: string };
+  /** The stored-project list changed (a save or a delete). */
+  projects: ProjectSummary[];
+  /** A project the client asked for. Sent only to that client. */
+  projectLoaded: { name: string; project: unknown };
   /**
    * Daemon-originated: app settings changed (by another client). Sent to every
    * client except the one that saved them, so all clients show one setup.

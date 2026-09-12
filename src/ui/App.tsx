@@ -12,6 +12,8 @@ import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { ImportWizard, type ImportSpec } from './ImportWizard';
 import { loadPdf, type LoadedPdf } from '../plot/pdf';
 import { sniffFile } from '../plot/sniff';
+import { downloadFileName, makeProject, readProject } from '../plot/project';
+import type { ProjectSummary } from '../gateway/protocol';
 import { applyDetail } from '../plot/detail';
 import {
   estimatePlotTime,
@@ -254,6 +256,9 @@ export function App() {
   const [useCustomPaper, setUseCustomPaper] = useState(restored?.useCustomPaper ?? false);
   // A multi-page PDF waiting for the operator to say which page to import.
   const [pdfPick, setPdfPick] = useState<{ name: string; doc: LoadedPdf } | null>(null);
+  // Projects stored on the daemon, and the name this job was last saved under.
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectName, setProjectName] = useState('');
   // Import wizard: the image being converted. `artId` is set when reopening an
   // existing import, so confirming replaces that object instead of adding one.
   const [importing, setImporting] = useState<{
@@ -364,6 +369,10 @@ export function App() {
           ackChangedAtRef.current = Date.now();
         }
       }),
+      ctrl.on('projects', (list) => setProjects(list)),
+      ctrl.on('projectLoaded', (e) => {
+        openProject(e.project, e.name);
+      }),
       ctrl.on('penChange', (e) => {
         penChangeRef.current = !!e;
         setPenChange(e);
@@ -449,22 +458,10 @@ export function App() {
   // Persist the editable session: always to localStorage (instant, offline), and
   // to the daemon (lives on the Pi, any device) once we've synced its session.
   useEffect(() => {
-    const blob: Session = {
-      items,
-      // `selectedId` stays in the blob so an older build (or an older daemon's
-      // stored session) still restores a sensible selection.
-      selectedId,
-      selectedIds,
-      nextId: idRef.current,
-      paperIdx,
-      orientation,
-      useCustomPaper,
-      customPaper,
-      paperStyleId,
-      selectedPenId,
-      mode,
-      magnets,
-    };
+    // One builder for the session, shared with project saving: two copies of
+    // this list would drift, and the field someone forgets to add to the second
+    // one is a field that quietly vanishes from every saved project.
+    const blob = currentSession();
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
   }, [
@@ -1171,6 +1168,108 @@ export function App() {
     setMagnets((list) => list.map((m) => (m.id === id ? { ...m, x, y } : m)));
   }
 
+  /** Everything that makes up the job, as a project file would store it. */
+  function currentSession(): Session {
+    return {
+      items,
+      // `selectedId` stays in the blob so an older build (or an older daemon's
+      // stored session) still restores a sensible selection.
+      selectedId,
+      selectedIds,
+      nextId: idRef.current,
+      paperIdx,
+      orientation,
+      useCustomPaper,
+      customPaper,
+      paperStyleId,
+      selectedPenId,
+      mode,
+      magnets,
+    };
+  }
+
+  /**
+   * Replace the page with a stored project. The pens it was drawn with come
+   * with it and are merged into the library: artwork refers to pens by id, so a
+   * project opened on another machine would otherwise come out in whatever
+   * pens happen to be defined there.
+   */
+  function openProject(raw: unknown, fallbackName = '') {
+    const result = readProject(raw);
+    if (!result.ok) {
+      setAlert(result.error);
+      return;
+    }
+    const { project } = result;
+    const s = project.session as Session | null;
+    if (!s || !Array.isArray(s.items)) {
+      setAlert('That project file has no drawing in it.');
+      return;
+    }
+    if (project.pens.length > 0) {
+      setSettings((prev) => {
+        const byId = new Map(prev.pens.map((pen) => [pen.id, pen]));
+        for (const pen of project.pens) if (!byId.has(pen.id)) byId.set(pen.id, pen);
+        return { ...prev, pens: [...byId.values()] };
+      });
+    }
+    // The retained import sources belong to the drawing being replaced.
+    sourcesRef.current.clear();
+    setItems(s.items.map(normalizeArt));
+    setSelectedIds(s.selectedIds ?? (s.selectedId ? [s.selectedId] : []));
+    if (typeof s.nextId === 'number') idRef.current = Math.max(idRef.current, s.nextId);
+    if (typeof s.paperIdx === 'number') setPaperIdx(s.paperIdx);
+    if (s.orientation) setOrientation(s.orientation);
+    if (typeof s.useCustomPaper === 'boolean') setUseCustomPaper(s.useCustomPaper);
+    if (s.customPaper) setCustomPaper(s.customPaper);
+    if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
+    if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
+    if (s.mode) setMode(s.mode);
+    setMagnets(s.magnets ?? []);
+    setProjectName(project.name || fallbackName);
+    setAlert(`Opened ${project.name || fallbackName}.`);
+  }
+
+  /** Save the job to the operator's own machine, as a file they can keep. */
+  function downloadProject() {
+    const name = projectName.trim() || 'Untitled';
+    const blob = new Blob([JSON.stringify(makeProject(name, currentSession(), pens), null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = downloadFileName(name);
+    a.click();
+    // Revoking immediately can cancel the download in some browsers; a tick is
+    // enough for the click to have taken the URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setAlert(`Saved ${a.download}.`);
+  }
+
+  async function openProjectFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      openProject(JSON.parse(await file.text()), file.name.replace(/\.plot\.json$/i, ''));
+    } catch {
+      setAlert(`Could not read ${file.name} — it is not a project file.`);
+    }
+  }
+
+  function saveProjectToPi() {
+    const name = projectName.trim();
+    if (!name) {
+      setAlert('Give the project a name first.');
+      return;
+    }
+    void ctrl()
+      ?.saveProject(name, makeProject(name, currentSession(), pens))
+      .then(() => setAlert(`Saved "${name}" on the plotter.`))
+      .catch((err) => setAlert(String((err as Error).message ?? err)));
+  }
+
   function restack(delta: number) {
     if (plotting || selectedIds.length === 0) return;
     setItems((list) => reorderMany(list, selectedIds, delta));
@@ -1838,6 +1937,75 @@ export function App() {
                   Unlock
                 </button>
               </div>
+            </Section>
+
+            <Section title="Projects" collapsible>
+              <p className="mb-1.5 text-xs text-slate-500">
+                A project is the whole job — artwork, placement, pens, paper, mode and magnets.
+                Saved on the plotter it is reachable from any device; saved to this machine it is a
+                file you keep.
+              </p>
+              <input
+                className={`${field} mb-1 w-full`}
+                placeholder="Project name"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  className={btn}
+                  disabled={!connected || items.length === 0}
+                  title="Store this job on the plotter"
+                  onClick={saveProjectToPi}
+                >
+                  Save to plotter
+                </button>
+                <button
+                  className={btn}
+                  disabled={items.length === 0}
+                  title="Download this job as a file"
+                  onClick={downloadProject}
+                >
+                  Save to this device
+                </button>
+                <label className={`${btn} col-span-2 cursor-pointer text-center`}>
+                  Open a project file…
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={openProjectFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {projects.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {projects.map((p) => (
+                    <li
+                      key={p.name}
+                      className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs"
+                    >
+                      <button
+                        className="min-w-0 flex-1 truncate text-left"
+                        title={p.savedAt ? `Saved ${new Date(p.savedAt).toLocaleString()}` : ''}
+                        onClick={() => void ctrl()?.loadProject(p.name)}
+                      >
+                        {p.name}
+                      </button>
+                      <button
+                        className="shrink-0 px-1 text-slate-400 hover:text-red-600"
+                        title="Delete from the plotter"
+                        onClick={() => void ctrl()?.deleteProject(p.name)}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {connected && projects.length === 0 && (
+                <p className="mt-1 text-[10px] text-slate-400">No projects on the plotter yet.</p>
+              )}
             </Section>
 
             <Section title="Magnets" collapsible>
