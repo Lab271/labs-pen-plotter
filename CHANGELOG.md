@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Image import wizard.** The separate **+ SVG** / **+ PNG** buttons are now one
+  **+ Image**: vector files go straight in, raster images open a wizard — adjust
+  (brightness, contrast, invert, rotate, crop), then pick a conversion and tune it with a
+  live preview of the real strokes. Two algorithms to start: Outline (the iso-contour
+  tracing imports used to do silently) and Hatching (parallel lines whose density carries
+  tone). An import keeps its settings, so it can be reopened and retuned in place rather
+  than re-imported.
 - **Shapes and text on the canvas.** Line, rectangle, ellipse and polygon, plus text in a
   built-in single-line stroke font (an outline font would plot letters as hollow double
   lines). Size means cap height in mm, so a ruler on the finished sheet agrees with the

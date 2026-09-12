@@ -25,11 +25,14 @@ unattended **Raspberry Pi** setup needs.
 
 ## What it does
 
-- **Import SVG or PNG/JPEG.** SVGs are flattened to polylines in the browser DOM
-  (`getPointAtLength` / `getCTM`, no dependencies). Raster images are traced with
-  marching-squares iso-contours — adjust a darkness threshold and the number of
-  brightness levels (1 = outline only, more = tonal layers). Fill-heavy SVGs plot best
-  if you import them as PNG.
+- **One import, with a wizard for images.** SVGs are flattened to polylines in the browser
+  DOM (`getPointAtLength` / `getCTM`, no dependencies) and go straight onto the page at
+  their real size. A raster image opens the **import wizard**: adjust it (brightness,
+  contrast, invert, rotate, crop), then choose how it becomes lines — **Outline**
+  (marching-squares iso-contours) or **Hatching** (parallel lines, denser where the image
+  is darker) — with a live preview of the actual strokes before you commit. An import
+  remembers its settings, so you can reopen the wizard and retune it instead of starting
+  again. Fill-heavy SVGs plot best exported as a raster and run through the wizard.
 - **Lay out on a paper canvas (Konva).** Place, scale, and rotate (including 90° steps)
   one or more artworks on a sheet anchored at the bed's top-left corner. "Fit to corner"
   and "fit to paper" helpers, paper presets A4–A0 (plus an A0 SBP variant) or a custom

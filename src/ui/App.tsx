@@ -9,6 +9,7 @@ import { RegistrationWizard } from './RegistrationWizard';
 import { StepPicker } from './StepPicker';
 import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
+import { ImportWizard, type ImportSpec } from './ImportWizard';
 import { applyDetail } from '../plot/detail';
 import { estimatePlotTime, formatDuration, generatePenGroupGcode } from '../plot/gcode';
 import {
@@ -84,6 +85,8 @@ interface PlacedArt {
   kind: 'svg' | 'png' | 'shape' | 'text';
   /** Drawn objects only: what to regenerate the geometry from. */
   spec?: ObjectSpec;
+  /** Imported images: the wizard settings, so the import can be reopened. */
+  importSpec?: ImportSpec;
   /** Full-detail flattened polylines (paper-mm, normalized to origin). */
   master: Polyline[];
   widthMm: number;
@@ -233,6 +236,14 @@ export function App() {
   const [paperIdx, setPaperIdx] = useState(restored?.paperIdx ?? 2); // A2
   const [orientation, setOrientation] = useState<Orientation>(restored?.orientation ?? 'landscape');
   const [useCustomPaper, setUseCustomPaper] = useState(restored?.useCustomPaper ?? false);
+  // Import wizard: the image being converted. `artId` is set when reopening an
+  // existing import, so confirming replaces that object instead of adding one.
+  const [importing, setImporting] = useState<{
+    name: string;
+    source: FieldSource;
+    initial?: ImportSpec;
+    artId?: string;
+  } | null>(null);
   // Registration wizard: the artwork it is open for (opens itself after an SVG
   // import that carries calibration points; reopened with Register…).
   const [wizardFor, setWizardFor] = useState<string | null>(null);
@@ -664,10 +675,7 @@ export function App() {
     );
   }
 
-  async function onLoadSvg(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-importing the same file
-    if (!file) return;
+  async function importSvgFile(file: File) {
     const signal = (flattenAbort.current = { aborted: false });
     try {
       const text = await file.text();
@@ -682,7 +690,7 @@ export function App() {
         setAlert(
           'No plottable stroke geometry in that SVG (it is likely fill-based, or everything ' +
             'is on a calibration/reference layer or pure blue, which is never cut). ' +
-            'Export it as a PNG and use “Upload PNG” instead.',
+            'Export it as a PNG and import that — the wizard converts it to lines.',
         );
         return;
       }
@@ -700,34 +708,40 @@ export function App() {
     }
   }
 
-  async function onLoadPng(e: React.ChangeEvent<HTMLInputElement>) {
+  /**
+   * One entry for every image. A vector file is already lines, so it goes
+   * straight in (keeping its real size and its reference layer); anything raster
+   * has to be *converted*, and which conversion is the operator's decision — so
+   * it opens the wizard instead of guessing.
+   */
+  async function onLoadImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = '';
+    e.target.value = ''; // allow re-importing the same file
     if (!file) return;
-    setAlert('Tracing image…');
+    if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) {
+      await importSvgFile(file);
+      return;
+    }
+    setAlert('Reading image…');
     try {
-      const field = await imageToField(file, MASTER_MAXDIM);
-      const controls: ArtControls = {
-        ...DEFAULT_CONTROLS,
-        threshold: cal.pngThreshold,
-        levels: cal.pngLevels,
-      };
-      const { artwork: art } = traceField(field, {
-        threshold: controls.threshold,
-        levels: controls.levels,
-        invert: controls.invert,
-        contrast: controls.contrast,
-        toleranceMm: MASTER_TOLERANCE_MM,
-      });
-      if (art.polylines.length === 0) {
-        setAlert('No contours found — try a higher threshold or a higher-contrast image.');
-        return;
-      }
-      addArtwork(file.name, 'png', art, controls, { kind: 'png', field });
+      const source = await imageToField(file, MASTER_MAXDIM);
       setAlert('');
+      setImporting({ name: file.name, source });
     } catch (err) {
       setAlert(String((err as Error).message ?? err));
     }
+  }
+
+  /** Reopen the wizard for an already-imported image (same session only). */
+  function reopenImport(art: PlacedArt) {
+    const src = sourcesRef.current.get(art.id);
+    if (!src || src.kind !== 'png') return;
+    setImporting({
+      name: art.name,
+      source: src.field,
+      initial: art.importSpec,
+      artId: art.id,
+    });
   }
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
@@ -1070,6 +1084,45 @@ export function App() {
           onCancel={() => setWizardFor(null)}
         />
       )}
+      {importing && (
+        <ImportWizard
+          name={importing.name}
+          source={importing.source}
+          initial={importing.initial}
+          onCancel={() => setImporting(null)}
+          onConfirm={(result, spec) => {
+            const { artId, name, source } = importing;
+            setImporting(null);
+            if (artId) {
+              // Reopened: replace that object's geometry, keeping its placement,
+              // pen and position in the stack — the operator is retuning the
+              // same drawing, not adding another one.
+              setItems((list) =>
+                list.map((i) =>
+                  i.id === artId
+                    ? {
+                        ...i,
+                        master: result.polylines,
+                        widthMm: result.widthMm,
+                        heightMm: result.heightMm,
+                        importSpec: spec,
+                      }
+                    : i,
+                ),
+              );
+              return;
+            }
+            const id = addArtwork(
+              name,
+              'png',
+              { polylines: result.polylines, widthMm: result.widthMm, heightMm: result.heightMm },
+              { ...DEFAULT_CONTROLS },
+              { kind: 'png', field: source },
+            );
+            setItems((list) => list.map((i) => (i.id === id ? { ...i, importSpec: spec } : i)));
+          }}
+        />
+      )}
       {penChange && (
         <PenChangePrompt
           label={penChange.label}
@@ -1300,21 +1353,15 @@ export function App() {
           {/* Left panel */}
           <aside className="w-1/2 shrink-0 overflow-y-auto border-r border-slate-300 bg-white p-3 text-sm md:order-1 md:w-60">
             <Section title="Artwork" className="hidden md:block">
-              <div className="flex gap-2">
-                <label className={`${btnPrimary} flex-1 cursor-pointer text-center`}>
-                  + SVG
-                  <input type="file" accept=".svg" onChange={onLoadSvg} className="hidden" />
-                </label>
-                <label className={`${btnPrimary} flex-1 cursor-pointer text-center`}>
-                  + PNG
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    onChange={onLoadPng}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              <label className={`${btnPrimary} block w-full cursor-pointer text-center`}>
+                + Image
+                <input
+                  type="file"
+                  accept="image/svg+xml,image/png,image/jpeg,image/webp,.svg"
+                  onChange={onLoadImage}
+                  className="hidden"
+                />
+              </label>
 
               <div className="mt-1.5 grid grid-cols-4 gap-1">
                 <button className={btn} title="Add a line" onClick={() => addShape('line')}>
@@ -1537,12 +1584,30 @@ export function App() {
                       Re-import to re-tune source controls (the current look is kept).
                     </p>
                   )}
+                  {selectedItem.importSpec && sourceAvailable && (
+                    <button
+                      className={`${btn} mb-2 w-full`}
+                      disabled={plotting}
+                      onClick={() => reopenImport(selectedItem)}
+                    >
+                      Reopen import wizard…
+                    </button>
+                  )}
                   {selectedItem.spec ? (
                     <SpecEditor
                       spec={selectedItem.spec}
                       disabled={plotting}
                       onChange={(spec) => setSpec(selectedItem.id, spec)}
                     />
+                  ) : selectedItem.importSpec ? (
+                    // The wizard owns this object's conversion. Showing the old
+                    // inline threshold/levels sliders too would give two
+                    // controls for one thing, and moving one would silently
+                    // throw away what the wizard produced.
+                    <p className="mb-1.5 text-xs text-slate-500">
+                      Converted with the import wizard — reopen it to change the algorithm or its
+                      settings.
+                    </p>
                   ) : selectedItem.kind === 'png' ? (
                     <>
                       <Slider
