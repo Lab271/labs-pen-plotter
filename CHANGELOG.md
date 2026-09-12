@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Import from anything.** One import that identifies a file by its *contents* rather than
+  its name — operators rename files, and a phone hands over an `image.jpg` that is really
+  HEIC. **PDF** is now a first-class source: a vector page imports as lines at the size the
+  page declares, keeping its page position so registration works exactly as it does for an
+  SVG; a page that is really a scan goes to the conversion wizard; a multi-page file asks
+  which page. HEIC is named rather than just rejected ("convert it on your phone"), anything
+  unreadable says so instead of adding an empty artwork, and phones get a **Take photo**
+  button so a sketch on paper can be traced without leaving the app. pdf.js is loaded on
+  demand, so the bundle every client downloads to jog the machine is unchanged.
+
+### Fixed
+
+- The daemon served `.mjs` as `application/octet-stream`, which browsers refuse to execute as
+  a module — a lazily-loaded chunk would have worked in the dev server and failed only in the
+  packaged build. `.wasm` and `.map` were missing too.
 - **Holding tabs for cutting.** Short uncut bridges that keep each piece attached to the
   sheet until it is snapped out by hand — the opposite of the overcut, and wanted just as
   often. Count, width and a minimum contour length are set in the knife profile; bridges are

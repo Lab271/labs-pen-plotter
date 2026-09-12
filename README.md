@@ -25,9 +25,14 @@ unattended **Raspberry Pi** setup needs.
 
 ## What it does
 
-- **One import, with a wizard for images.** SVGs are flattened to polylines in the browser
-  DOM (`getPointAtLength` / `getCTM`, no dependencies) and go straight onto the page at
-  their real size. A raster image opens the **import wizard**: adjust it (brightness,
+- **One import for every source.** What a file *is* is read from its contents, not its name:
+  **SVG** and **vector PDF** go straight onto the page at the real size they declare (keeping
+  their page position, so registration works); a **PDF that is really a scan**, a photo, or
+  any raster the browser can decode opens the conversion wizard; a **multi-page PDF** asks
+  which page; **HEIC** says what to do about it rather than failing silently; and on a phone
+  there is a **Take photo** button, so a sketch on paper can be photographed and traced at
+  the machine. SVGs are flattened to polylines in the browser DOM (`getPointAtLength` /
+  `getCTM`, no dependencies). A raster image opens the **import wizard**: adjust it (brightness,
   contrast, invert, rotate, crop), then choose how it becomes lines — **Outline**
   (marching-squares iso-contours), **Hatching** (parallel lines, denser where the image is
   darker), **Crosshatch** (more directions the darker the tone), **Stippling** (dots placed
