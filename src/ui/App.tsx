@@ -21,6 +21,7 @@ import {
 } from '../plot/place';
 import { DEFAULT_PAPER_STYLE_ID, PAPER_SIZES, PAPER_STYLES, paperDims } from '../plot/paper';
 import { resolvePen } from '../plot/pen';
+import { copyName, pastePlacement, reorderMany } from '../plot/scene';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
@@ -169,7 +170,30 @@ export function App() {
 
   const [jogStep, setJogStep] = useState(10);
   const [items, setItems] = useState<PlacedArt[]>(() => (restored?.items ?? []).map(normalizeArt));
-  const [selectedId, setSelectedId] = useState<string | null>(restored?.selectedId ?? null);
+  // The selection is a list: editing acts on all of it, while the panels that
+  // only make sense for one object (registration, drawing controls) read the
+  // last one selected — which is also what a plain click leaves behind.
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    restored?.selectedIds ?? (restored?.selectedId ? [restored.selectedId] : []),
+  );
+  const selectedId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+  const setSelectedId = useCallback((id: string | null) => setSelectedIds(id ? [id] : []), []);
+  /** Click selection: replace, or toggle into the selection for Shift/Cmd-click. */
+  const selectObject = useCallback((id: string | null, additive = false) => {
+    if (!id) {
+      setSelectedIds([]);
+      return;
+    }
+    setSelectedIds((cur) =>
+      additive
+        ? cur.includes(id)
+          ? cur.filter((x) => x !== id)
+          : [...cur, id]
+        : cur.length === 1 && cur[0] === id
+          ? cur
+          : [id],
+    );
+  }, []);
   const idRef = useRef(restored?.nextId ?? 0);
   // Retained sources (in memory only) keyed by artwork id, so source controls can
   // re-derive the master without re-importing. Absent after a reload (master kept).
@@ -323,7 +347,7 @@ export function App() {
         const s = data as Session | null;
         if (s && Array.isArray(s.items)) {
           setItems((s.items as PersistedArt[]).map(normalizeArt));
-          setSelectedId(s.selectedId ?? null);
+          setSelectedIds(s.selectedIds ?? (s.selectedId ? [s.selectedId] : []));
           if (typeof s.nextId === 'number') idRef.current = Math.max(idRef.current, s.nextId);
           if (typeof s.paperIdx === 'number') setPaperIdx(s.paperIdx);
           if (s.orientation) setOrientation(s.orientation);
@@ -374,7 +398,10 @@ export function App() {
   useEffect(() => {
     const blob: Session = {
       items,
+      // `selectedId` stays in the blob so an older build (or an older daemon's
+      // stored session) still restores a sensible selection.
       selectedId,
+      selectedIds,
       nextId: idRef.current,
       paperIdx,
       orientation,
@@ -388,6 +415,7 @@ export function App() {
   }, [
     items,
     selectedId,
+    selectedIds,
     paperIdx,
     orientation,
     useCustomPaper,
@@ -398,6 +426,39 @@ export function App() {
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
   // auto-reattaches its WebSocket. No browser-side Web Serial reconnect needed.)
+
+  // Editing shortcuts. Bound on the window rather than a focused element: the
+  // operator's attention is on the canvas, which is a <canvas> and takes no
+  // focus of its own. Anything typed into a field is left alone.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable)
+        return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'c') {
+        copySelection();
+      } else if (mod && e.key.toLowerCase() === 'v') {
+        pasteClipboard();
+      } else if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault(); // browsers bookmark on Cmd+D
+        duplicateSelection();
+      } else if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedIds(items.map((i) => i.id));
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Backspace is "go back" on some setups — only act when something is
+        // selected, so an accidental press outside the editor does nothing.
+        if (selectedIds.length > 0) e.preventDefault();
+        deleteSelection();
+      } else if (e.key === 'Escape') {
+        setSelectedIds([]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Refresh the visible log a few times a second only while the panel is open.
   useEffect(() => {
@@ -710,11 +771,75 @@ export function App() {
     if ((SOURCE_KEYS as string[]).includes(key as string)) scheduleDerive(id);
   }
 
+  // Clipboard: full copies of the objects, kept in a ref rather than the system
+  // clipboard. The artwork is megabytes of polylines with an in-memory source
+  // attached, which does not survive a serialise → paste round trip, and the
+  // operator means "duplicate this drawing", not "put SVG text on my clipboard".
+  const clipboard = useRef<PlacedArt[]>([]);
+  const [clipboardCount, setClipboardCount] = useState(0);
+
+  const selectedItems = items.filter((i) => selectedIds.includes(i.id));
+
+  function copySelection() {
+    if (selectedItems.length === 0) return;
+    clipboard.current = selectedItems.map((i) => ({ ...i }));
+    setClipboardCount(selectedItems.length);
+    setAlert(`Copied ${selectedItems.length} object(s).`);
+  }
+
+  function pasteClipboard() {
+    if (clipboard.current.length === 0 || plotting) return;
+    const taken = items.map((i) => i.name);
+    const pasted: PlacedArt[] = clipboard.current.map((src) => {
+      const id = `art${++idRef.current}`;
+      // Carry the retained source across so the copy's source controls still
+      // re-derive; the master polylines are immutable, so sharing them is safe.
+      const source = sourcesRef.current.get(src.id);
+      if (source) sourcesRef.current.set(id, source);
+      const name = copyName(src.name, taken);
+      taken.push(name);
+      return {
+        ...src,
+        id,
+        name,
+        placement: pastePlacement(
+          { id: src.id, placement: src.placement, widthMm: src.widthMm, heightMm: src.heightMm },
+          paper.widthMm,
+          paper.heightMm,
+        ),
+      };
+    });
+    setItems((list) => [...list, ...pasted]);
+    setSelectedIds(pasted.map((i) => i.id));
+  }
+
+  function duplicateSelection() {
+    copySelection();
+    // Paste reads the ref, which copySelection has already filled — so this is
+    // one gesture, not a copy that also clobbers whatever was on the clipboard
+    // for the operator's next paste.
+    pasteClipboard();
+  }
+
+  function deleteSelection() {
+    if (plotting || selectedIds.length === 0) return;
+    flattenAbort.current.aborted = true; // stop any in-flight derive/import work
+    for (const id of selectedIds) sourcesRef.current.delete(id);
+    setItems((list) => list.filter((i) => !selectedIds.includes(i.id)));
+    setSelectedIds([]);
+  }
+
+  function restack(delta: number) {
+    if (plotting || selectedIds.length === 0) return;
+    setItems((list) => reorderMany(list, selectedIds, delta));
+  }
+
+  /** Remove one object (the ✕ in the artwork list), selected or not. */
   function removeItem(id: string) {
     flattenAbort.current.aborted = true; // stop any in-flight derive/import work
     sourcesRef.current.delete(id);
     setItems((list) => list.filter((i) => i.id !== id));
-    setSelectedId((sel) => (sel === id ? null : sel));
+    setSelectedIds((sel) => sel.filter((x) => x !== id));
   }
   function fitToCorner() {
     if (!selectedItem) return;
@@ -1035,32 +1160,46 @@ export function App() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Center canvas — fills the screen on phones; middle column on desktop. */}
-        <div
-          ref={canvasBox}
-          className="relative min-h-0 w-full min-w-0 flex-1 bg-slate-200 md:order-2 md:h-auto md:w-auto md:flex-1"
-        >
-          {size.width > 0 && (
-            <PlotCanvas
-              width={size.width}
-              height={size.height}
-              bedW={bedW}
-              bedH={bedH}
-              paperW={paper.widthMm}
-              paperH={paper.heightMm}
-              paperStyleId={paperStyleId}
-              artworks={displayItems}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onPlacement={updatePlacement}
-              penPos={penPos}
-              locked={plotting}
-            />
-          )}
-          {items.length === 0 && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-slate-400">
-              Add an SVG or PNG to place it on the page
-            </div>
-          )}
+        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col md:order-2 md:h-auto md:w-auto md:flex-1">
+          <EditToolbar
+            count={selectedIds.length}
+            total={items.length}
+            canPaste={clipboardCount > 0}
+            locked={plotting}
+            onSelectAll={() => setSelectedIds(items.map((i) => i.id))}
+            onSelectNone={() => setSelectedIds([])}
+            onCopy={copySelection}
+            onPaste={pasteClipboard}
+            onDuplicate={duplicateSelection}
+            onDelete={deleteSelection}
+            onForward={() => restack(1)}
+            onBackward={() => restack(-1)}
+          />
+          <div ref={canvasBox} className="relative min-h-0 w-full min-w-0 flex-1 bg-slate-200">
+            {size.width > 0 && (
+              <PlotCanvas
+                width={size.width}
+                height={size.height}
+                bedW={bedW}
+                bedH={bedH}
+                paperW={paper.widthMm}
+                paperH={paper.heightMm}
+                paperStyleId={paperStyleId}
+                artworks={displayItems}
+                selectedIds={selectedIds}
+                onSelect={selectObject}
+                onSelectMany={setSelectedIds}
+                onPlacement={updatePlacement}
+                penPos={penPos}
+                locked={plotting}
+              />
+            )}
+            {items.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+                Add an SVG or PNG to place it on the page
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Controls: a compact bottom row on phones; dissolves into the columns on desktop. */}
@@ -1090,12 +1229,14 @@ export function App() {
                     <li
                       key={it.id}
                       className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${
-                        it.id === selectedId ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
+                        selectedIds.includes(it.id)
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-slate-200'
                       }`}
                     >
                       <button
                         className="min-w-0 flex-1 truncate text-left"
-                        onClick={() => setSelectedId(it.id)}
+                        onClick={(e) => selectObject(it.id, e.shiftKey || e.metaKey || e.ctrlKey)}
                       >
                         {it.name}
                       </button>
@@ -1494,6 +1635,90 @@ function PenChangePrompt(props: {
   );
 }
 
+/**
+ * The editing toolbar: what acts on the *selection*, kept above the canvas
+ * where the selection is. Everything here is also a keyboard shortcut — the
+ * buttons exist because a touch screen has no Cmd key, and because they say
+ * what the shortcuts are.
+ */
+function EditToolbar(props: {
+  count: number;
+  total: number;
+  canPaste: boolean;
+  locked: boolean;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onForward: () => void;
+  onBackward: () => void;
+}) {
+  const none = props.count === 0;
+  return (
+    <div className="flex flex-wrap items-center gap-1 border-b border-slate-300 bg-white px-2 py-1 text-xs">
+      <span className="mr-1 text-slate-500">
+        {props.count > 0 ? `${props.count} selected` : `${props.total} object(s)`}
+      </span>
+      <button
+        className={btn}
+        disabled={props.total === 0}
+        title="Select all (⌘A)"
+        onClick={
+          props.count === props.total && props.total > 0 ? props.onSelectNone : props.onSelectAll
+        }
+      >
+        {props.count === props.total && props.total > 0 ? 'Select none' : 'Select all'}
+      </button>
+      <button className={btn} disabled={none} title="Copy (⌘C)" onClick={props.onCopy}>
+        Copy
+      </button>
+      <button
+        className={btn}
+        disabled={!props.canPaste || props.locked}
+        title="Paste (⌘V)"
+        onClick={props.onPaste}
+      >
+        Paste
+      </button>
+      <button
+        className={btn}
+        disabled={none || props.locked}
+        title="Duplicate (⌘D)"
+        onClick={props.onDuplicate}
+      >
+        Duplicate
+      </button>
+      <button
+        className={btn}
+        disabled={none || props.locked}
+        title="Bring forward"
+        onClick={props.onForward}
+      >
+        ↑
+      </button>
+      <button
+        className={btn}
+        disabled={none || props.locked}
+        title="Send backward"
+        onClick={props.onBackward}
+      >
+        ↓
+      </button>
+      <button
+        className={btn}
+        disabled={none || props.locked}
+        title="Delete (⌫)"
+        onClick={props.onDelete}
+      >
+        Delete
+      </button>
+      {props.locked && <span className="text-amber-600">Locked while plotting</span>}
+    </div>
+  );
+}
+
 // ---- small presentational helpers ----
 
 // Transport controls (Pause/Resume/Stop): large touch targets on phones,
@@ -1620,6 +1845,11 @@ function useElementSize(ref: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Measure once up front. ResizeObserver delivery is throttled in a hidden or
+    // backgrounded tab, and the canvas only mounts once it has a size — without
+    // this, a tab restored from the background can come back to an empty page.
+    const r0 = el.getBoundingClientRect();
+    if (r0.width > 0 && r0.height > 0) setSize({ width: r0.width, height: r0.height });
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect;
       setSize({ width: r.width, height: r.height });

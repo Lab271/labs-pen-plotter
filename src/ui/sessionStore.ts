@@ -28,7 +28,10 @@ export interface PersistedArt {
  */
 export interface Session {
   items: PersistedArt[];
+  /** Last-selected object — kept for sessions written before multi-selection. */
   selectedId: string | null;
+  /** The whole selection. Optional: older sessions only recorded one. */
+  selectedIds?: string[];
   nextId: number;
   paperIdx: number;
   orientation: 'landscape' | 'portrait';

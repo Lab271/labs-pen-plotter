@@ -46,6 +46,9 @@ unattended **Raspberry Pi** setup needs.
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.
+- **Edit the page as objects.** Select one, several (Shift-click), or drag a band over
+  them; move the whole selection at once; copy, paste, duplicate and delete, with the
+  usual ⌘C/⌘V/⌘D/⌘A/⌫ shortcuts; and reorder the stack. Editing locks while a plot runs.
 - **WYSIWYG preview.** The canvas renders the actual flattened pen path, plus a **live
   pen marker** that tracks the machine's reported work position while it draws.
 - **Detail slider.** Thins strokes live for both the preview and the plot — fewer strokes

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import type { Placement, Point, Polyline } from '../plot/types';
 import { paperStyle, type PaperStyle } from '../plot/paper';
+import { objectsInRect, rectFromDrag, type Rect as MmRect } from '../plot/scene';
 
 interface CanvasArt {
   id: string;
@@ -27,8 +28,12 @@ interface Props {
   /** How the sheet looks (colour + pattern). Preview only — never plotted. */
   paperStyleId?: string;
   artworks: CanvasArt[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
+  /** Every selected object. The transformer acts on all of them at once. */
+  selectedIds: string[];
+  /** `additive` = the click carried Shift/Cmd, i.e. toggle into the selection. */
+  onSelect: (id: string | null, additive?: boolean) => void;
+  /** Result of a rubber-band drag (replaces the selection). */
+  onSelectMany: (ids: string[]) => void;
   onPlacement: (id: string, p: Placement) => void;
   penPos: Point | null;
   /** When true (e.g. a plot is running), artwork can't be dragged/transformed. */
@@ -45,12 +50,14 @@ export function PlotCanvas(props: Props) {
     paperH,
     paperStyleId,
     artworks,
-    selectedId,
+    selectedIds,
     penPos,
     onSelect,
+    onSelectMany,
     onPlacement,
     locked = false,
   } = props;
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   // On narrow (phone) canvases the bed (A0) dwarfs the paper, leaving the drawing
   // tiny with empty bed all around — so fit to the paper instead, with a small
   // margin. On wider screens fit the whole bed (more handle clearance for editing).
@@ -96,10 +103,12 @@ export function PlotCanvas(props: Props) {
   useEffect(() => {
     const tr = trRef.current;
     if (!tr) return;
-    const node = selectedId ? nodeRefs.current.get(selectedId) : null;
-    tr.nodes(node ? [node] : []);
+    const nodes = selectedIds
+      .map((id) => nodeRefs.current.get(id))
+      .filter((n): n is Konva.Group => !!n);
+    tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
-  }, [selectedId, artworks, locked]);
+  }, [selectedIds, artworks, locked]);
 
   // Memoize the artwork nodes so the high-frequency pen-position / connection
   // re-renders produce the SAME element references — react-konva then leaves the
@@ -119,9 +128,30 @@ export function PlotCanvas(props: Props) {
           scaleY={a.placement.scale}
           rotation={a.placement.rotation}
           draggable={!locked}
-          onClick={() => onSelect(a.id)}
-          onTap={() => onSelect(a.id)}
-          onDragEnd={(e) => onPlacement(a.id, { ...a.placement, x: e.target.x(), y: e.target.y() })}
+          onClick={(e) => onSelect(a.id, isAdditive(e))}
+          onTap={() => onSelect(a.id, false)}
+          onDragStart={() => {
+            // Dragging an unselected object selects it first, so the drag moves
+            // what the operator grabbed rather than a stale selection.
+            if (!selected.has(a.id)) onSelect(a.id, false);
+          }}
+          onDragEnd={(e) => {
+            // Konva drags only the grabbed node; the rest of the selection is
+            // carried by the same delta so a multi-object move stays rigid.
+            const dx = e.target.x() - a.placement.x;
+            const dy = e.target.y() - a.placement.y;
+            onPlacement(a.id, { ...a.placement, x: e.target.x(), y: e.target.y() });
+            if (selected.has(a.id) && (dx !== 0 || dy !== 0)) {
+              for (const other of artworks) {
+                if (other.id === a.id || !selected.has(other.id)) continue;
+                onPlacement(other.id, {
+                  ...other.placement,
+                  x: other.placement.x + dx,
+                  y: other.placement.y + dy,
+                });
+              }
+            }
+          }}
           onTransformEnd={(e) => {
             const n = e.target as Konva.Group;
             onPlacement(a.id, { x: n.x(), y: n.y(), scale: n.scaleX(), rotation: n.rotation() });
@@ -136,7 +166,7 @@ export function PlotCanvas(props: Props) {
               // The pen's own colour once it has one: selection is shown by the
               // transform handles, so the preview does not have to recolour the
               // artwork to indicate it — and recolouring would hide the pen.
-              stroke={a.penColor ?? (a.id === selectedId ? selectedStroke : strokeColor)}
+              stroke={a.penColor ?? (selected.has(a.id) ? selectedStroke : strokeColor)}
               strokeWidth={penPx(a.penWidthMm)}
               strokeScaleEnabled={false}
               lineCap="round"
@@ -147,7 +177,6 @@ export function PlotCanvas(props: Props) {
       )),
     [
       artworks,
-      selectedId,
       onSelect,
       onPlacement,
       registerNode,
@@ -155,15 +184,51 @@ export function PlotCanvas(props: Props) {
       strokeColor,
       selectedStroke,
       pxPerMm,
+      selected,
+      onSelectMany,
     ],
   );
+
+  // Rubber band, in paper mm (the same frame as placements, so the hit test is
+  // the pure one from scene.ts rather than pixel arithmetic done twice).
+  const [band, setBand] = useState<MmRect | null>(null);
+  const bandStart = useRef<{ x: number; y: number } | null>(null);
+  const toMm = (pos: { x: number; y: number }) => ({
+    x: (pos.x - margin) / pxPerMm,
+    y: (pos.y - margin) / pxPerMm,
+  });
 
   return (
     <Stage
       width={width}
       height={height}
       onMouseDown={(e) => {
-        if (e.target === e.target.getStage()) onSelect(null);
+        // Only a press on empty space starts a band; a press on artwork is a drag.
+        if (e.target !== e.target.getStage()) return;
+        if (!isAdditive(e)) onSelect(null);
+        if (locked) return;
+        const pos = e.target.getStage()?.getPointerPosition();
+        if (pos) bandStart.current = toMm(pos);
+      }}
+      onMouseMove={(e) => {
+        const start = bandStart.current;
+        if (!start) return;
+        const pos = e.target.getStage()?.getPointerPosition();
+        if (pos) setBand(rectFromDrag(start, toMm(pos)));
+      }}
+      onMouseUp={() => {
+        const rect = band;
+        bandStart.current = null;
+        setBand(null);
+        // A click with no drag is a deselect, already handled on mousedown —
+        // don't let a stray 0×0 band select everything it happens to touch.
+        if (rect && (rect.width > 1 || rect.height > 1)) {
+          onSelectMany(objectsInRect(artworks.map(toSceneObject), rect));
+        }
+      }}
+      onMouseLeave={() => {
+        bandStart.current = null;
+        setBand(null);
       }}
     >
       {/* Static layer: bed, paper, artwork, transform handles. */}
@@ -221,7 +286,22 @@ export function PlotCanvas(props: Props) {
           />
           {artNodes}
         </Group>
-        {selectedId && !locked && (
+        {band && (
+          <Group x={margin} y={margin} scaleX={pxPerMm} scaleY={pxPerMm} listening={false}>
+            <Rect
+              x={band.x}
+              y={band.y}
+              width={band.width}
+              height={band.height}
+              fill="#3b82f6"
+              opacity={0.12}
+              stroke="#3b82f6"
+              strokeWidth={1}
+              strokeScaleEnabled={false}
+            />
+          </Group>
+        )}
+        {selectedIds.length > 0 && !locked && (
           <Transformer ref={trRef} rotateEnabled keepRatio flipEnabled={false} />
         )}
       </Layer>
@@ -284,4 +364,15 @@ function makePatternTile(style: PaperStyle): HTMLCanvasElement | null {
     ctx.stroke();
   }
   return c;
+}
+
+/** Shift/Cmd/Ctrl on a click means "add to the selection" rather than "replace it". */
+function isAdditive(e: Konva.KonvaEventObject<MouseEvent>): boolean {
+  const ev = e.evt;
+  return !!(ev?.shiftKey || ev?.metaKey || ev?.ctrlKey);
+}
+
+/** The part of a canvas artwork the pure scene hit-test needs. */
+function toSceneObject(a: CanvasArt) {
+  return { id: a.id, placement: a.placement, widthMm: a.w, heightMm: a.h };
 }

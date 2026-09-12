@@ -26,12 +26,17 @@ The system SHALL let the operator move (drag), scale, and rotate the artwork on 
 
 ### Requirement: Multiple artworks on the page
 
-The system SHALL allow more than one artwork (SVG or traced image) to be placed on the same paper. The operator SHALL be able to add artworks, select one to edit, and remove one or more. Plotting SHALL produce G-code for all placed artworks together.
+The system SHALL allow more than one artwork (SVG or traced image) to be placed on the same paper. The operator SHALL be able to add artworks, select any number of them to edit, and remove them. The panels that act on a single object (registration, the per-artwork drawing controls) SHALL act on the most recently selected one. Plotting SHALL produce G-code for all placed artworks together.
 
 #### Scenario: Add, select, and remove artworks
 
 - **WHEN** the operator adds several artworks and removes one
-- **THEN** each can be placed/transformed independently, the selected one shows transform handles, and the removed one disappears from the page and from the plot
+- **THEN** each can be placed/transformed independently, the selection shows transform handles, and the removed one disappears from the page and from the plot
+
+#### Scenario: A selection of several
+
+- **WHEN** the operator selects several artworks
+- **THEN** the editing operations act on all of them, while the single-object panels follow the last one selected
 
 #### Scenario: Plot includes every placed artwork
 
