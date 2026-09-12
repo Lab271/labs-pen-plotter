@@ -16,6 +16,7 @@ import {
   formatDuration,
   generateGcode,
   generatePenGroupGcode,
+  travelLegs,
 } from '../plot/gcode';
 import {
   actualSizePlacement,
@@ -846,6 +847,23 @@ export function App() {
     [magnets, placedPolylines, cutting, knife],
   );
 
+  /**
+   * Which magnet is on which artwork, in words. "2 magnets are in the way" is
+   * not actionable; "the magnet at 245, 155 mm on Rect" is — the operator can
+   * walk to the bed and move that one.
+   */
+  const magnetConflicts = useMemo(
+    () =>
+      hitMagnets.map((m) => {
+        const hitItem = displayItems.find(
+          (i) => magnetsHitBy([m], placePolylines(i.polylines, i.placement)).length > 0,
+        );
+        const name = items.find((i) => i.id === hitItem?.id)?.name;
+        return `the magnet at ${m.x.toFixed(0)}, ${m.y.toFixed(0)} mm${name ? ` on ${name}` : ''}`;
+      }),
+    [hitMagnets, displayItems, items],
+  );
+
   // The program that Plot sends — built here so the time estimate is costed on
   // exactly the G-code that will run, pen changes and all.
   //
@@ -865,6 +883,7 @@ export function App() {
         // A prepared contour must not be reversed: blade-offset compensation
         // overshoots each corner along the direction of travel.
         allowReverse: false,
+        avoidZones: magnets,
       });
     }
     return generatePenGroupGcode(penGroups, {
@@ -873,8 +892,26 @@ export function App() {
       dwellMs: cal.penDwellMs,
       drawFeed: cal.drawFeed,
       travelFeed: cal.travelFeed,
+      avoidZones: magnets,
     });
-  }, [penGroups, cal, cutting, knife]);
+  }, [penGroups, cal, cutting, knife, magnets]);
+
+  // Travel legs, shown on the canvas only where a magnet forces a detour —
+  // drawing every pen-up move all the time would bury the artwork in dashes.
+  const travelPreview = useMemo(() => {
+    if (magnets.length === 0 || placedPolylines.length === 0) return undefined;
+    const legs = travelLegs(cutting ? prepareForCut(placedPolylines, knife) : placedPolylines, {
+      penUpZ: cal.penUpZ,
+      penDownZ: cal.penDownZ,
+      dwellMs: cal.penDwellMs,
+      drawFeed: cal.drawFeed,
+      travelFeed: cal.travelFeed,
+      allowReverse: !cutting,
+      avoidZones: magnets,
+    });
+    const detours = legs.filter((leg) => leg.length > 2);
+    return detours.length > 0 ? detours : undefined;
+  }, [magnets, placedPolylines, cutting, knife, cal]);
 
   // Estimated total plot time for the currently placed artwork (recomputed when
   // the artwork, layout, or feeds change). Walks the program that will actually
@@ -1107,9 +1144,7 @@ export function App() {
     if (hitMagnets.length > 0) {
       // Geometry through a magnet cannot be routed around: the tool has to be
       // there. Stopping here costs a sheet; not stopping costs the work origin.
-      setAlert(
-        `${hitMagnets.length} magnet(s) sit on the artwork — move them or the artwork before plotting.`,
-      );
+      setAlert(`Cannot plot through ${magnetConflicts.join(', ')} — move it, or move the artwork.`);
       return;
     }
     startProgram(
@@ -1457,6 +1492,7 @@ export function App() {
                 magnets={magnets}
                 magnetsHit={hitMagnets.map((m) => m.id)}
                 onMagnetMove={plotting ? undefined : moveMagnet}
+                travel={travelPreview}
                 artworks={displayItems}
                 selectedIds={selectedIds}
                 onSelect={selectObject}
@@ -1726,8 +1762,7 @@ export function App() {
                   </p>
                   {hitMagnets.length > 0 && (
                     <p className="mt-1 text-xs text-red-600">
-                      {hitMagnets.length} magnet(s) sit on the artwork — plotting is blocked until
-                      they are clear.
+                      Plotting is blocked: {magnetConflicts.join(', ')}.
                     </p>
                   )}
                 </>

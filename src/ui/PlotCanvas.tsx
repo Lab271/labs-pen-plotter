@@ -40,6 +40,12 @@ interface Props {
   magnetsHit?: string[];
   /** Dragging a magnet moves it; null while a plot is running. */
   onMagnetMove?: (id: string, x: number, y: number) => void;
+  /**
+   * Pen-up travel legs, shown only when there is something to look at (a
+   * detour around a magnet). A detour the operator cannot see is a detour they
+   * cannot sanity-check before starting the job.
+   */
+  travel?: Polyline[];
   artworks: CanvasArt[];
   /** Every selected object. The transformer acts on all of them at once. */
   selectedIds: string[];
@@ -66,6 +72,7 @@ export function PlotCanvas(props: Props) {
     magnets,
     magnetsHit,
     onMagnetMove,
+    travel,
     artworks,
     selectedIds,
     penPos,
@@ -306,6 +313,17 @@ export function PlotCanvas(props: Props) {
             fill={paper.dark ? '#475569' : '#cbd5e1'}
             listening={false}
           />
+          {(travel ?? []).map((leg, i) => (
+            <Line
+              key={`travel${i}`}
+              points={leg.flatMap((p) => [p.x, p.y])}
+              stroke="#94a3b8"
+              strokeWidth={1}
+              strokeScaleEnabled={false}
+              dash={[3, 3]}
+              listening={false}
+            />
+          ))}
           {artNodes}
           {(magnets ?? []).map((m) => {
             const hit = magnetsHit?.includes(m.id);

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Travel routes around the magnets.** Pen-up moves that would cross a keep-out zone now
+  detour clear of it — every leg, including the first one out and the return home — and the
+  detours are drawn on the canvas so the route can be checked before starting. The plot-time
+  estimate picks up the extra distance for free, since it walks the emitted G-code. With no
+  magnets recorded the output is byte-for-byte what it was.
 - **Magnet keep-out zones.** The hold-down magnets can be recorded on the canvas, drawn to
   scale as the area the tool must avoid, dragged to move, and sized individually. **Suggest**
   offers positions at the sheet's edges that are fully on the paper and clear of the drawing.

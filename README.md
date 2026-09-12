@@ -50,8 +50,10 @@ unattended **Raspberry Pi** setup needs.
   walk up with a phone, and the prompt is still there to answer.
 - **Magnets.** The bed has no vacuum, so tell the app where the hold-down magnets are:
   they're drawn as keep-out circles you can drag, **Suggest** offers clear positions at the
-  sheet's edges, and a magnet sitting on a stroke turns red and blocks the plot — a carriage
-  that hits one at travel speed drags the sheet and takes the work origin with it.
+  sheet's edges, and **pen-up travel is routed around them** — the detour is drawn on the
+  canvas so you can check it before starting. A magnet sitting on a *stroke* turns red and
+  blocks the plot, naming which magnet and which artwork: routing can bend a travel move,
+  but it cannot move a line that has to be drawn there.
 - **Draw or Cut.** A job is one or the other, and the mode drives everything: cutting uses
   the **knife profile** (its own Z, dwell and cut feed), places imports **1:1** at the
   position the file gives them, offers only outline conversions (a fill would shred a
