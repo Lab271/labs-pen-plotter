@@ -521,10 +521,16 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
 const MIME: Record<string, string> = {
   '.html': 'text/html',
   '.js': 'text/javascript',
+  // A lazily-loaded chunk (the PDF worker) is served as .mjs. Browsers refuse
+  // to execute a module served as application/octet-stream, so without this the
+  // feature fails only in the packaged build — never in the dev server.
+  '.mjs': 'text/javascript',
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json',
+  '.map': 'application/json',
+  '.wasm': 'application/wasm',
 };
 const httpServer = createServer(async (req, res) => {
   try {

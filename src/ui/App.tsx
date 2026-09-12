@@ -10,6 +10,8 @@ import { StepPicker } from './StepPicker';
 import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { ImportWizard, type ImportSpec } from './ImportWizard';
+import { loadPdf, type LoadedPdf } from '../plot/pdf';
+import { sniffFile } from '../plot/sniff';
 import { applyDetail } from '../plot/detail';
 import {
   estimatePlotTime,
@@ -250,6 +252,8 @@ export function App() {
   const [paperIdx, setPaperIdx] = useState(restored?.paperIdx ?? 2); // A2
   const [orientation, setOrientation] = useState<Orientation>(restored?.orientation ?? 'landscape');
   const [useCustomPaper, setUseCustomPaper] = useState(restored?.useCustomPaper ?? false);
+  // A multi-page PDF waiting for the operator to say which page to import.
+  const [pdfPick, setPdfPick] = useState<{ name: string; doc: LoadedPdf } | null>(null);
   // Import wizard: the image being converted. `artId` is set when reopening an
   // existing import, so confirming replaces that object instead of adding one.
   const [importing, setImporting] = useState<{
@@ -753,19 +757,108 @@ export function App() {
    * has to be *converted*, and which conversion is the operator's decision — so
    * it opens the wizard instead of guessing.
    */
+  /**
+   * One entry for every source. What a file *is* decides the route, and that is
+   * read from its contents rather than its name: operators rename files, and a
+   * phone will hand over an `image.jpg` that is really HEIC.
+   */
   async function onLoadImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-importing the same file
     if (!file) return;
-    if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) {
-      await importSvgFile(file);
+    setAlert('Reading file…');
+    try {
+      const kind = await sniffFile(file);
+      if (kind === 'svg') {
+        await importSvgFile(file);
+        return;
+      }
+      if (kind === 'pdf') {
+        await importPdfFile(file);
+        return;
+      }
+      if (kind === 'unknown') {
+        setAlert(`Could not read ${file.name}. Supported: SVG, PDF, PNG, JPEG, WebP, GIF and BMP.`);
+        return;
+      }
+      try {
+        const source = await imageToField(file, MASTER_MAXDIM);
+        setAlert('');
+        setImporting({ name: file.name, source });
+      } catch (err) {
+        // HEIC is the common case here: iPhones produce it by default and most
+        // browsers cannot decode it, so say what to do rather than "failed".
+        if (kind === 'heic') {
+          setAlert(
+            `This browser cannot read HEIC images. Convert ${file.name} to JPEG on your phone ` +
+              '(Settings → Camera → Formats → Most Compatible), or export it as PNG.',
+          );
+          return;
+        }
+        throw err;
+      }
+    } catch (err) {
+      setAlert(String((err as Error).message ?? err));
+    }
+  }
+
+  /** Open a PDF: one page goes straight in, several ask which. */
+  async function importPdfFile(file: File) {
+    setAlert('Reading PDF…');
+    const doc = await loadPdf(file);
+    if (doc.numPages === 1) {
+      await importPdfPage(file.name, doc, 1);
       return;
     }
-    setAlert('Reading image…');
+    setAlert('');
+    setPdfPick({ name: file.name, doc });
+  }
+
+  /**
+   * Import one page. A vector page is already the thing we want — paths at the
+   * size the page declares — so it goes in like an SVG, keeping its page
+   * position for registration. A page that is really a scan goes to the wizard,
+   * which is where deciding how a picture becomes lines belongs.
+   */
+  async function importPdfPage(name: string, doc: LoadedPdf, pageNumber: number) {
+    setPdfPick(null);
+    setAlert('Reading PDF…');
     try {
-      const source = await imageToField(file, MASTER_MAXDIM);
+      const label = doc.numPages > 1 ? `${name} (page ${pageNumber})` : name;
+      const geometry = await doc.geometry(pageNumber, MASTER_TOLERANCE_MM);
+      if (geometry.polylines.length > 0) {
+        const box = bounds(geometry.polylines);
+        const normalised = geometry.polylines.map((poly) =>
+          poly.map((pt) => ({ x: pt.x - box.minX, y: pt.y - box.minY })),
+        );
+        addArtwork(
+          label,
+          'svg',
+          {
+            polylines: normalised,
+            widthMm: box.width,
+            heightMm: box.height,
+            // Where the drawing sits on its page, so Place on page and the
+            // registration wizard work exactly as they do for an SVG.
+            pageOffset: { x: box.minX, y: box.minY },
+          },
+          { ...DEFAULT_CONTROLS, samplingMm: MASTER_TOLERANCE_MM },
+          { kind: 'svg', text: '' },
+        );
+        setAlert(
+          geometry.skippedText > 0
+            ? `Imported. ${geometry.skippedText} text run(s) skipped — a PDF's text is glyph ` +
+                'outlines, which plot as hollow letters. Add it with the Text tool instead.'
+            : '',
+        );
+        await doc.destroy();
+        return;
+      }
+      // No paths: it is a scan (or a page of nothing but text and images).
+      const source = await doc.field(pageNumber, MASTER_MAXDIM);
+      await doc.destroy();
       setAlert('');
-      setImporting({ name: file.name, source });
+      setImporting({ name: label, source });
     } catch (err) {
       setAlert(String((err as Error).message ?? err));
     }
@@ -1232,6 +1325,17 @@ export function App() {
           onCancel={() => setWizardFor(null)}
         />
       )}
+      {pdfPick && (
+        <PdfPagePicker
+          name={pdfPick.name}
+          pages={pdfPick.doc.numPages}
+          onPick={(n) => void importPdfPage(pdfPick.name, pdfPick.doc, n)}
+          onCancel={() => {
+            void pdfPick.doc.destroy();
+            setPdfPick(null);
+          }}
+        />
+      )}
       {importing && (
         <ImportWizard
           name={importing.name}
@@ -1524,12 +1628,38 @@ export function App() {
         <div className="flex max-h-[50%] min-h-0 shrink-0 overflow-hidden md:contents">
           {/* Left panel */}
           <aside className="w-1/2 shrink-0 overflow-y-auto border-r border-slate-300 bg-white p-3 text-sm md:order-1 md:w-60">
+            {/* Phones: import only, and the camera — the point of #56 is that a
+                sketch on paper can be photographed and traced without leaving
+                the app, which is a thing you do standing at the machine. The
+                placement controls stay on the desktop layout. */}
+            <Section title="Artwork" className="md:hidden">
+              <label className={`${btnPrimary} block cursor-pointer text-center`}>
+                Take photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onLoadImage}
+                  className="hidden"
+                />
+              </label>
+              <label className={`${btn} mt-1 block cursor-pointer text-center`}>
+                + Image
+                <input
+                  type="file"
+                  accept="image/*,application/pdf,.svg,.pdf,.heic,.heif"
+                  onChange={onLoadImage}
+                  className="hidden"
+                />
+              </label>
+            </Section>
+
             <Section title="Artwork" className="hidden md:block">
               <label className={`${btnPrimary} block w-full cursor-pointer text-center`}>
                 + Image
                 <input
                   type="file"
-                  accept="image/svg+xml,image/png,image/jpeg,image/webp,.svg"
+                  accept="image/*,application/pdf,.svg,.pdf,.heic,.heif"
                   onChange={onLoadImage}
                   className="hidden"
                 />
@@ -2013,6 +2143,42 @@ export function App() {
         </div>
         {alert && <span className="text-red-600">{alert}</span>}
       </footer>
+    </div>
+  );
+}
+
+/** Which page of a multi-page PDF to import. */
+function PdfPagePicker(props: {
+  name: string;
+  pages: number;
+  onPick: (page: number) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose a PDF page"
+    >
+      <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
+        <h2 className="truncate text-sm font-semibold">{props.name}</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          {props.pages} pages. Which one do you want to plot?
+        </p>
+        <div className="mt-3 flex max-h-56 flex-wrap gap-1 overflow-y-auto">
+          {Array.from({ length: props.pages }, (_, i) => (
+            <button key={i} className={btn} onClick={() => props.onPick(i + 1)}>
+              {i + 1}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button className={btn} onClick={props.onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
