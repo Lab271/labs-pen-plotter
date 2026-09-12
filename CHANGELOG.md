@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Magnet keep-out zones.** The hold-down magnets can be recorded on the canvas, drawn to
+  scale as the area the tool must avoid, dragged to move, and sized individually. **Suggest**
+  offers positions at the sheet's edges that are fully on the paper and clear of the drawing.
+  A magnet that a *stroke* passes through turns red and blocks the plot: the carriage hitting
+  one at travel speed drags the sheet, and with no limit switches nothing recovers the work
+  origin. Travel legs that cross a magnet are not blocked — routing around them is the next
+  step, not a warning to learn to ignore.
 - **Cutting mode.** A job is now Draw or Cut. Cutting uses its own knife profile (Z, dwell,
   cut feed, travel feed), places imports at 1:1 where the file puts them rather than fitting
   them to the page, offers only outline conversions in the import wizard, draws the preview

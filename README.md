@@ -48,6 +48,10 @@ unattended **Raspberry Pi** setup needs.
   Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
   streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
   walk up with a phone, and the prompt is still there to answer.
+- **Magnets.** The bed has no vacuum, so tell the app where the hold-down magnets are:
+  they're drawn as keep-out circles you can drag, **Suggest** offers clear positions at the
+  sheet's edges, and a magnet sitting on a stroke turns red and blocks the plot — a carriage
+  that hits one at travel speed drags the sheet and takes the work origin with it.
 - **Draw or Cut.** A job is one or the other, and the mode drives everything: cutting uses
   the **knife profile** (its own Z, dwell and cut feed), places imports **1:1** at the
   position the file gives them, offers only outline conversions (a fill would shred a

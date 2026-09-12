@@ -4,6 +4,7 @@ import type Konva from 'konva';
 import type { Placement, Point, Polyline } from '../plot/types';
 import { paperStyle, type PaperStyle } from '../plot/paper';
 import { objectsInRect, rectFromDrag, type Rect as MmRect } from '../plot/scene';
+import type { Magnet } from '../plot/magnet';
 
 interface CanvasArt {
   id: string;
@@ -33,6 +34,12 @@ interface Props {
    * screen is which lines the knife will follow.
    */
   cutting?: boolean;
+  /** Hold-down magnets on the sheet, drawn as keep-out circles. */
+  magnets?: Magnet[];
+  /** Ids of magnets the artwork runs into — drawn as a warning. */
+  magnetsHit?: string[];
+  /** Dragging a magnet moves it; null while a plot is running. */
+  onMagnetMove?: (id: string, x: number, y: number) => void;
   artworks: CanvasArt[];
   /** Every selected object. The transformer acts on all of them at once. */
   selectedIds: string[];
@@ -56,6 +63,9 @@ export function PlotCanvas(props: Props) {
     paperH,
     paperStyleId,
     cutting = false,
+    magnets,
+    magnetsHit,
+    onMagnetMove,
     artworks,
     selectedIds,
     penPos,
@@ -297,6 +307,27 @@ export function PlotCanvas(props: Props) {
             listening={false}
           />
           {artNodes}
+          {(magnets ?? []).map((m) => {
+            const hit = magnetsHit?.includes(m.id);
+            return (
+              <Circle
+                key={m.id}
+                x={m.x}
+                y={m.y}
+                radius={m.radiusMm}
+                // The circle is the keep-out zone, so it is drawn to scale and
+                // filled faintly: the operator has to see what it covers, not
+                // just where its centre is.
+                fill={hit ? 'rgba(220,38,38,0.22)' : 'rgba(100,116,139,0.18)'}
+                stroke={hit ? '#dc2626' : '#475569'}
+                strokeWidth={1.2}
+                strokeScaleEnabled={false}
+                dash={hit ? undefined : [4, 3]}
+                draggable={!locked && !!onMagnetMove}
+                onDragEnd={(e) => onMagnetMove?.(m.id, e.target.x(), e.target.y())}
+              />
+            );
+          })}
         </Group>
         {band && (
           <Group x={margin} y={margin} scaleX={pxPerMm} scaleY={pxPerMm} listening={false}>

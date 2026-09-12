@@ -3,6 +3,7 @@ import type { ArtControls } from '../plot/controls';
 import type { ShapeSpec } from '../plot/shapes';
 import type { TextSpec } from '../plot/font';
 import type { ImportSpec } from './ImportWizard';
+import type { Magnet } from '../plot/magnet';
 import type { Calibration } from '../grbl/settings';
 
 /** A placed artwork as persisted (matches App's PlacedArt). */
@@ -65,6 +66,12 @@ export interface Session {
    * bed — the sheet of vinyl is what makes it a cut. Optional for old sessions.
    */
   mode?: 'draw' | 'cut';
+  /**
+   * Where the hold-down magnets are. Session data because they belong to the
+   * sheet currently on the bed, and they outlive a browser tab — the machine
+   * is still holding the same sheet down.
+   */
+  magnets?: Magnet[];
   /**
    * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
    * session or an old daemon keeps a tuned setup) but no longer written: the

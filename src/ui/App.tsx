@@ -37,6 +37,12 @@ import {
 import { DEFAULT_TEXT, missingGlyphs, textPolylines, type TextSpec } from '../plot/font';
 import { copyName, pastePlacement, reorderMany } from '../plot/scene';
 import { prepareForCut } from '../plot/cut';
+import {
+  DEFAULT_MAGNET_RADIUS_MM,
+  magnetsHitBy,
+  recommendMagnets,
+  type Magnet,
+} from '../plot/magnet';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
@@ -268,6 +274,11 @@ export function App() {
   // profile a job uses, how an import is placed, and what the machine is told.
   const [mode, setMode] = useState<'draw' | 'cut'>(restored?.mode ?? 'draw');
   const cutting = mode === 'cut';
+  // Where the hold-down magnets are. The machine has no vacuum bed, and a
+  // magnet the carriage strikes at travel feed drags the sheet and takes the
+  // work origin with it — so the app has to know about them.
+  const [magnets, setMagnets] = useState<Magnet[]>(restored?.magnets ?? []);
+  const magnetIdRef = useRef(0);
 
   useEffect(() => {
     const ctrl = new GatewayClient();
@@ -391,6 +402,7 @@ export function App() {
           if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
           if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
           if (s.mode) setMode(s.mode);
+          if (s.magnets) setMagnets(s.magnets);
           // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
           // client talking to an older daemon that has no app-settings record —
           // the `appSettings` snapshot field (emitted right after this) wins when
@@ -446,6 +458,7 @@ export function App() {
       paperStyleId,
       selectedPenId,
       mode,
+      magnets,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
@@ -460,6 +473,7 @@ export function App() {
     paperStyleId,
     selectedPenId,
     mode,
+    magnets,
   ]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
@@ -818,6 +832,20 @@ export function App() {
       .map((pen) => ({ label: pen.name, polylines: byPen.get(pen.id)! }));
   }, [displayItems, pens]);
 
+  // Magnets the artwork itself crosses. Travel can be routed around a magnet;
+  // a stroke that has to be *drawn* through one cannot be.
+  const placedPolylines = useMemo(
+    () => displayItems.flatMap((i) => placePolylines(i.polylines, i.placement)),
+    [displayItems],
+  );
+  const hitMagnets = useMemo(
+    // Test the geometry that will actually be cut or drawn: in cutting mode the
+    // overcut carries the blade a little past the contour, and a magnet sitting
+    // in exactly that tail is still a magnet the blade would hit.
+    () => magnetsHitBy(magnets, cutting ? prepareForCut(placedPolylines, knife) : placedPolylines),
+    [magnets, placedPolylines, cutting, knife],
+  );
+
   // The program that Plot sends — built here so the time estimate is costed on
   // exactly the G-code that will run, pen changes and all.
   //
@@ -976,6 +1004,34 @@ export function App() {
     setSelectedIds([]);
   }
 
+  function addMagnet(at?: { x: number; y: number }) {
+    const id = `mag-${Date.now().toString(36)}-${++magnetIdRef.current}`;
+    const x = at?.x ?? paper.widthMm / 2;
+    const y = at?.y ?? paper.heightMm / 2;
+    setMagnets((list) => [...list, { id, x, y, radiusMm: DEFAULT_MAGNET_RADIUS_MM }]);
+  }
+
+  function suggestMagnets() {
+    const suggested = recommendMagnets(
+      paper.widthMm,
+      paper.heightMm,
+      placedPolylines,
+      DEFAULT_MAGNET_RADIUS_MM,
+    );
+    if (suggested.length === 0) {
+      setAlert('No clear spot for a magnet — the drawing reaches every edge of the sheet.');
+      return;
+    }
+    // Replace rather than append: these are suggestions for the sheet as it is
+    // now, and mixing them with the previous set would be neither.
+    setMagnets(suggested.map((m, i) => ({ ...m, id: `mag-suggest-${i + 1}` })));
+    setAlert('');
+  }
+
+  function moveMagnet(id: string, x: number, y: number) {
+    setMagnets((list) => list.map((m) => (m.id === id ? { ...m, x, y } : m)));
+  }
+
   function restack(delta: number) {
     if (plotting || selectedIds.length === 0) return;
     setItems((list) => reorderMany(list, selectedIds, delta));
@@ -1046,6 +1102,14 @@ export function App() {
     const b = bounds(placed);
     if (b.minX < -0.01 || b.minY < -0.01 || b.maxX > bedW + 0.01 || b.maxY > bedH + 0.01) {
       setAlert('Artwork is outside the work area — scale or move it to fit before plotting.');
+      return;
+    }
+    if (hitMagnets.length > 0) {
+      // Geometry through a magnet cannot be routed around: the tool has to be
+      // there. Stopping here costs a sheet; not stopping costs the work origin.
+      setAlert(
+        `${hitMagnets.length} magnet(s) sit on the artwork — move them or the artwork before plotting.`,
+      );
       return;
     }
     startProgram(
@@ -1390,6 +1454,9 @@ export function App() {
                 paperH={paper.heightMm}
                 paperStyleId={paperStyleId}
                 cutting={cutting}
+                magnets={magnets}
+                magnetsHit={hitMagnets.map((m) => m.id)}
+                onMagnetMove={plotting ? undefined : moveMagnet}
                 artworks={displayItems}
                 selectedIds={selectedIds}
                 onSelect={selectObject}
@@ -1595,6 +1662,76 @@ export function App() {
                   Unlock
                 </button>
               </div>
+            </Section>
+
+            <Section title="Magnets" collapsible>
+              <p className="mb-1.5 text-xs text-slate-500">
+                The bed has no vacuum. A magnet the carriage hits at travel speed drags the sheet
+                and takes the work origin with it — so tell the app where they are.
+              </p>
+              <div className="grid grid-cols-2 gap-1">
+                <button className={btn} onClick={() => suggestMagnets()}>
+                  Suggest
+                </button>
+                <button className={btn} onClick={() => addMagnet()}>
+                  Add one
+                </button>
+              </div>
+              {magnets.length > 0 && (
+                <>
+                  <ul className="mt-2 space-y-1">
+                    {magnets.map((m) => {
+                      const hit = hitMagnets.some((h) => h.id === m.id);
+                      return (
+                        <li
+                          key={m.id}
+                          className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${
+                            hit ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200'
+                          }`}
+                        >
+                          <span className="flex-1 tabular-nums">
+                            {m.x.toFixed(0)}, {m.y.toFixed(0)} mm
+                          </span>
+                          <input
+                            type="number"
+                            className={`${field} w-14`}
+                            value={m.radiusMm}
+                            step={1}
+                            min={1}
+                            aria-label="Keep-out radius in mm"
+                            onChange={(e) =>
+                              setMagnets((list) =>
+                                list.map((x) =>
+                                  x.id === m.id
+                                    ? { ...x, radiusMm: Math.max(1, Number(e.target.value)) }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
+                          <button
+                            className="px-1 text-slate-400 hover:text-red-600"
+                            title="Remove"
+                            onClick={() => setMagnets((list) => list.filter((x) => x.id !== m.id))}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Drag a magnet on the canvas to move it. The circle is the keep-out zone, not the
+                    magnet.
+                  </p>
+                  {hitMagnets.length > 0 && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {hitMagnets.length} magnet(s) sit on the artwork — plotting is blocked until
+                      they are clear.
+                    </p>
+                  )}
+                </>
+              )}
             </Section>
 
             <Section title="Registration">
