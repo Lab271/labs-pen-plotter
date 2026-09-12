@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three more conversion algorithms**, bringing the import wizard to five: **Crosshatch**
+  (the darker the tone, the more directions it is hatched from), **Stippling** (dots placed
+  by Floyd–Steinberg error diffusion, so density follows tone instead of banding), and
+  **Edge detect** (Sobel, normalised by the strongest edge — it finds where the image
+  *changes* rather than where it is dark).
 - **Image import wizard.** The separate **+ SVG** / **+ PNG** buttons are now one
   **+ Image**: vector files go straight in, raster images open a wizard — adjust
   (brightness, contrast, invert, rotate, crop), then pick a conversion and tune it with a

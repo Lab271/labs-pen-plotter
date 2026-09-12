@@ -29,8 +29,10 @@ unattended **Raspberry Pi** setup needs.
   DOM (`getPointAtLength` / `getCTM`, no dependencies) and go straight onto the page at
   their real size. A raster image opens the **import wizard**: adjust it (brightness,
   contrast, invert, rotate, crop), then choose how it becomes lines — **Outline**
-  (marching-squares iso-contours) or **Hatching** (parallel lines, denser where the image
-  is darker) — with a live preview of the actual strokes before you commit. An import
+  (marching-squares iso-contours), **Hatching** (parallel lines, denser where the image is
+  darker), **Crosshatch** (more directions the darker the tone), **Stippling** (dots placed
+  by error diffusion) or **Edge detect** (Sobel) — with a live preview of the actual strokes
+  before you commit. An import
   remembers its settings, so you can reopen the wizard and retune it instead of starting
   again. Fill-heavy SVGs plot best exported as a raster and run through the wizard.
 - **Lay out on a paper canvas (Konva).** Place, scale, and rotate (including 90° steps)
