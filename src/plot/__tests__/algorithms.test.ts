@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ALGORITHMS, DEFAULT_PARAMS, runAlgorithm, type AlgorithmParams } from '../algorithms';
+import {
+  ALGORITHMS,
+  contourAlgorithms,
+  DEFAULT_PARAMS,
+  runAlgorithm,
+  type AlgorithmParams,
+} from '../algorithms';
 import { bounds } from '../place';
 import type { FieldSource } from '../raster';
 
@@ -269,5 +275,23 @@ describe('edges', () => {
     for (let y = 10; y < 30; y++) for (let x = 10; x < 30; x++) dim[y * 40 + x] = 0.45;
     const r = runAlgorithm('edges', { field: dim, gw: 40, gh: 40, mmPerGrid: 1 }, params());
     expect(r.polylines.length).toBeGreaterThan(0);
+  });
+});
+
+describe('contour-only conversions', () => {
+  it('excludes every algorithm that fills an area', () => {
+    // A fill handed to a drag knife shreds the sticker instead of cutting it
+    // out, so cutting mode must never be offered one.
+    const contour = contourAlgorithms();
+    expect(contour.length).toBeGreaterThan(0);
+    expect(contour.every((a) => !a.fills)).toBe(true);
+    expect(contour.map((a) => a.id).sort()).toEqual(['edges', 'outline']);
+  });
+
+  it('marks the tonal algorithms as fills', () => {
+    const fills = ALGORITHMS.filter((a) => a.fills)
+      .map((a) => a.id)
+      .sort();
+    expect(fills).toEqual(['crosshatch', 'hatch', 'stipple']);
   });
 });

@@ -48,6 +48,12 @@ unattended **Raspberry Pi** setup needs.
   Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
   streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
   walk up with a phone, and the prompt is still there to answer.
+- **Draw or Cut.** A job is one or the other, and the mode drives everything: cutting uses
+  the **knife profile** (its own Z, dwell and cut feed), places imports **1:1** at the
+  position the file gives them, offers only outline conversions (a fill would shred a
+  sticker), previews in cut red, and prepares the toolpath for a drag knife — an
+  **overcut** past the closing point so the piece releases, and optional **blade-offset
+  compensation** at corners (off until you've measured your holder).
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.

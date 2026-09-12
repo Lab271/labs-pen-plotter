@@ -14,6 +14,13 @@ export interface PenOptions {
   drawFeed: number;
   /** Feed rate for pen-up (travel) moves, mm/min. */
   travelFeed: number;
+  /**
+   * Whether a stroke may be reversed to shorten travel. True for a pen, where
+   * direction is invisible. False for a drag knife: blade-offset compensation
+   * overshoots each corner along the direction of travel, so reversing a
+   * prepared contour would point every overshoot into the piece.
+   */
+  allowReverse?: boolean;
 }
 
 function fmt(n: number): string {
@@ -26,7 +33,7 @@ function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number
   return dx * dx + dy * dy;
 }
 
-function orderPolylines(polylines: Polyline[]): Polyline[] {
+function orderPolylines(polylines: Polyline[], allowReverse = true): Polyline[] {
   const remaining = polylines.filter((poly) => poly.length >= 2);
   const ordered: Polyline[] = [];
   let cursor = { x: 0, y: 0 };
@@ -46,11 +53,13 @@ function orderPolylines(polylines: Polyline[]): Polyline[] {
         bestReverse = false;
         bestDistance = startDistance;
       }
-      const endDistance = dist2(cursor, end);
-      if (endDistance < bestDistance) {
-        bestIndex = i;
-        bestReverse = true;
-        bestDistance = endDistance;
+      if (allowReverse) {
+        const endDistance = dist2(cursor, end);
+        if (endDistance < bestDistance) {
+          bestIndex = i;
+          bestReverse = true;
+          bestDistance = endDistance;
+        }
       }
     }
 
@@ -91,7 +100,7 @@ export function generateGcode(polylines: Polyline[], opts: PenOptions): string[]
 
   const lines: string[] = ['G21', 'G90', `G0 Z${up}`];
 
-  for (const poly of orderPolylines(polylines)) {
+  for (const poly of orderPolylines(polylines, opts.allowReverse ?? true)) {
     const start = poly[0];
     // Travel to the stroke start with the pen up.
     lines.push(`G1 X${fmt(start.x)} Y${fmt(start.y)} F${travel}`);
@@ -301,7 +310,7 @@ export function generatePenGroupGcode(groups: PenGroup[], opts: PenOptions): str
 
   const lines: string[] = ['G21', 'G90', `G0 Z${up}`];
   drawable.forEach((group, i) => {
-    for (const poly of orderPolylines(group.polylines)) {
+    for (const poly of orderPolylines(group.polylines, opts.allowReverse ?? true)) {
       const start = poly[0];
       lines.push(`G1 X${fmt(start.x)} Y${fmt(start.y)} F${travel}`);
       lines.push(`G0 Z${down}`, `G4 P${dwell}`);

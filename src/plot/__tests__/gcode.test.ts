@@ -306,3 +306,35 @@ describe('generatePenGroupGcode', () => {
     );
   });
 });
+
+describe('stroke ordering direction', () => {
+  const opts = { penUpZ: 0, penDownZ: 3, dwellMs: 250, drawFeed: 1500, travelFeed: 5000 };
+  // Two strokes where visiting the second one backwards is the shorter travel.
+  const strokes: Polyline[] = [
+    [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+    ],
+    [
+      { x: 30, y: 0 },
+      { x: 11, y: 0 },
+    ],
+  ];
+
+  /** Pen-up moves are the ones at travel feed: where each stroke is entered. */
+  const entries = (gc: string[]) => gc.filter((l) => l.includes('F5000'));
+
+  it('reverses a stroke to save travel when that is allowed', () => {
+    // Entered at x=11, next to where the first stroke ended — i.e. backwards.
+    expect(entries(generateGcode(strokes, opts))[1]).toContain('X11');
+  });
+
+  it('keeps every stroke in its own direction when reversing is disallowed', () => {
+    // A drag knife's corner compensation overshoots along the direction of
+    // travel, so a reversed contour points every overshoot into the piece.
+    const gc = generateGcode(strokes, { ...opts, allowReverse: false });
+    expect(entries(gc)[1]).toContain('X30');
+    // …and it is still drawn through to its far end.
+    expect(gc.filter((l) => l.includes('F1500'))[1]).toContain('X11');
+  });
+});
