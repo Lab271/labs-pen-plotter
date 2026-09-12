@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Holding tabs for cutting.** Short uncut bridges that keep each piece attached to the
+  sheet until it is snapped out by hand — the opposite of the overcut, and wanted just as
+  often. Count, width and a minimum contour length are set in the knife profile; bridges are
+  distributed by arc length, nudged off sharp corners (where a bridge tears instead of
+  snapping), kept clear of the stretch the overcut re-traces, and never produce a fragment
+  too small to cut. Off by default. The canvas now draws the prepared cutting path — overcut
+  tail and tab gaps — over the faded artwork, so where a piece stays attached can be checked
+  before a sheet of vinyl is committed.
 - **Travel routes around the magnets.** Pen-up moves that would cross a keep-out zone now
   detour clear of it — every leg, including the first one out and the return home — and the
   detours are drawn on the canvas so the route can be checked before starting. The plot-time

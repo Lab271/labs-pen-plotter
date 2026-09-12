@@ -168,19 +168,29 @@ describe('prepareForCut', () => {
   it('compensates first, then overcuts the compensated path', () => {
     // Order matters: the overcut has to re-trace the path the blade actually
     // follows, which is the compensated one.
-    const [out] = prepareForCut([square], { overcutMm: 2, bladeOffsetMm: 0.5 });
+    const [out] = prepareForCut([square], {
+      ...DEFAULT_CUT_OPTIONS,
+      overcutMm: 2,
+      bladeOffsetMm: 0.5,
+    });
     const compensated = applyBladeOffset(square, 0.5);
     expect(out.slice(0, compensated.length)).toEqual(compensated);
     expect(polylineLength(out)).toBeCloseTo(polylineLength(compensated) + 2, 6);
   });
 
   it('passes open geometry through with corner compensation only', () => {
-    const [out] = prepareForCut([openLine], { overcutMm: 2, bladeOffsetMm: 0 });
+    const [out] = prepareForCut([openLine], {
+      ...DEFAULT_CUT_OPTIONS,
+      overcutMm: 2,
+      bladeOffsetMm: 0,
+    });
     expect(out).toEqual(openLine);
   });
 
   it('leaves everything alone with both features off', () => {
     const polys = [square, openLine];
-    expect(prepareForCut(polys, { overcutMm: 0, bladeOffsetMm: 0 })).toEqual(polys);
+    expect(
+      prepareForCut(polys, { ...DEFAULT_CUT_OPTIONS, overcutMm: 0, bladeOffsetMm: 0 }),
+    ).toEqual(polys);
   });
 });

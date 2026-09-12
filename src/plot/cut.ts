@@ -10,9 +10,10 @@
  * Both are geometry problems, so they are solved here, on polylines, rather than
  * in the G-code writer — which stays the same one the pen uses.
  */
+import { applyTabs, DEFAULT_TABS, type TabOptions } from './tabs';
 import type { Point, Polyline } from './types';
 
-export interface CutOptions {
+export interface CutOptions extends TabOptions {
   /**
    * How far past the closure point the blade keeps cutting, in mm. Without it
    * the loop does not release; with too much it cuts into the neighbouring
@@ -27,6 +28,7 @@ export interface CutOptions {
 }
 
 export const DEFAULT_CUT_OPTIONS: CutOptions = {
+  ...DEFAULT_TABS,
   overcutMm: 1,
   // Off by default: a wrong offset is worse than none, and the right value has
   // to be measured on the actual blade holder.
@@ -148,15 +150,31 @@ export function applyBladeOffset(poly: Polyline, offsetMm: number, minAngleDeg =
 }
 
 /**
- * Prepare polylines for cutting: blade-offset compensation first, then overcut.
+ * Prepare polylines for cutting: blade-offset compensation, then overcut, then
+ * holding tabs.
  *
- * Order matters. Compensation inserts corner overshoots, which change the
- * polyline's start and end neighbourhood; applying the overcut afterwards means
- * it re-traces the *compensated* path, which is the path the blade actually
- * follows.
+ * The order is the whole design. Compensation inserts corner overshoots, which
+ * change the path's start and end neighbourhood, so the overcut has to come
+ * after it to re-trace the path the blade actually follows. Tabs come last
+ * because they *split* the path — after them there is no closed contour left
+ * for the overcut to recognise, and it would silently do nothing.
+ *
+ * Whether the contour was closed is decided once, up front, and carried
+ * through: it is a property of the artwork, not of the intermediate path.
  */
 export function prepareForCut(polylines: Polyline[], opts: CutOptions): Polyline[] {
-  return polylines.map((poly) =>
-    applyOvercut(applyBladeOffset(poly, opts.bladeOffsetMm), opts.overcutMm),
-  );
+  return polylines.flatMap((poly) => {
+    const closed = isClosed(poly);
+    const compensated = applyBladeOffset(poly, opts.bladeOffsetMm);
+    const overcut = applyOvercut(compensated, opts.overcutMm);
+    return applyTabs(overcut, {
+      tabWidthMm: opts.tabWidthMm,
+      tabCount: opts.tabCount,
+      minContourMm: opts.minContourMm,
+      closed,
+      // Keep tabs out of the stretch the overcut re-traces, or the overcut
+      // cuts straight through the first bridge and both features look broken.
+      protectStartMm: opts.overcutMm,
+    });
+  });
 }

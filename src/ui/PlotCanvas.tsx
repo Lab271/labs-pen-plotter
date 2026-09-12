@@ -46,6 +46,13 @@ interface Props {
    * cannot sanity-check before starting the job.
    */
   travel?: Polyline[];
+  /**
+   * The prepared cutting path, in paper mm: what the blade actually follows,
+   * including the overcut and the gaps left by holding tabs. Drawn over the
+   * artwork — which fades — because the gaps are the point: an operator has to
+   * see where the piece stays attached before committing a sheet of vinyl.
+   */
+  cutPath?: Polyline[];
   artworks: CanvasArt[];
   /** Every selected object. The transformer acts on all of them at once. */
   selectedIds: string[];
@@ -73,6 +80,7 @@ export function PlotCanvas(props: Props) {
     magnetsHit,
     onMagnetMove,
     travel,
+    cutPath,
     artworks,
     selectedIds,
     penPos,
@@ -195,6 +203,7 @@ export function PlotCanvas(props: Props) {
                   ? CUT_STROKE
                   : (a.penColor ?? (selected.has(a.id) ? selectedStroke : strokeColor))
               }
+              opacity={cutting && cutPath ? 0.25 : 1}
               strokeWidth={penPx(a.penWidthMm)}
               strokeScaleEnabled={false}
               lineCap="round"
@@ -215,6 +224,7 @@ export function PlotCanvas(props: Props) {
       selected,
       onSelectMany,
       cutting,
+      cutPath,
     ],
   );
 
@@ -325,6 +335,18 @@ export function PlotCanvas(props: Props) {
             />
           ))}
           {artNodes}
+          {(cutPath ?? []).map((piece, i) => (
+            <Line
+              key={`cut${i}`}
+              points={piece.flatMap((p) => [p.x, p.y])}
+              stroke={CUT_STROKE}
+              strokeWidth={1.6}
+              strokeScaleEnabled={false}
+              lineCap="round"
+              lineJoin="round"
+              listening={false}
+            />
+          ))}
           {(magnets ?? []).map((m) => {
             const hit = magnetsHit?.includes(m.id);
             return (
