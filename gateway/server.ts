@@ -51,13 +51,18 @@ const SESSION_FILE =
 // App settings (machine setup, preferences) live here — one plotter, one setup,
 // so every client that attaches adopts these. Separate from the session file on
 // purpose: the artwork is replaced constantly, the machine setup almost never.
+//
+// Defaults are derived from the *state* file's directory, not from the bundle's,
+// because the packaged app lives in a read-only /opt and its config file is a
+// dpkg conffile: an upgraded Pi whose operator had edited that file would keep
+// the old copy, never learn the new variable, and silently fail to write here.
+// PLOTTER_STATE has been set since the first packaged release, so its directory
+// is the one place known to be writable. (`UPDATE_STATUS` already does this.)
 const APP_SETTINGS_FILE =
-  process.env.PLOTTER_APP_SETTINGS ??
-  join(fileURLToPath(new URL('.', import.meta.url)), '.app-settings.json');
+  process.env.PLOTTER_APP_SETTINGS ?? join(dirname(STATE_FILE), '.app-settings.json');
 // Saved projects live on the Pi so it holds a library of plots any client can
 // open — one file per project, in a directory of their own.
-const PROJECTS_DIR =
-  process.env.PLOTTER_PROJECTS ?? join(fileURLToPath(new URL('.', import.meta.url)), 'projects');
+const PROJECTS_DIR = process.env.PLOTTER_PROJECTS ?? join(dirname(STATE_FILE), 'projects');
 
 // ---- self-update config ----
 // Where the update oneshot records its progress; the daemon reads it back after
