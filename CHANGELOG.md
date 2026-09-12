@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shapes and text on the canvas.** Line, rectangle, ellipse and polygon, plus text in a
+  built-in single-line stroke font (an outline font would plot letters as hollow double
+  lines). Size means cap height in mm, so a ruler on the finished sheet agrees with the
+  number. Drawn objects keep the parameters they were generated from, saved with the
+  session, so a label can still be retyped after a reload.
 - **Editing toolbar and a real scene model.** Multi-selection (click, Shift-click, or a
   rubber band across the page), moving a whole selection at once, copy/paste/duplicate/
   delete, stacking order, and the keyboard shortcuts for all of it. The operations that

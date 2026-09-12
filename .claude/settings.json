@@ -1,15 +1,29 @@
 {
   "permissions": {
     "defaultMode": "default",
-    "ask": [
+    "allow": [
+      "Bash(mise run *)",
+      "Bash(npm run *)",
+      "Bash(npm ci)",
+      "Bash(npx vitest *)",
+      "Bash(npx prettier *)",
+      "Bash(npx tsx *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git rebase *)",
+      "Bash(git reset *)",
+      "Bash(git restore *)",
+      "Bash(git mv *)",
+      "Bash(git tag *)",
       "Bash(git push *)",
-      "Bash(gh *)",
-      "Bash(rsync *)",
-      "Bash(ssh *)"
+      "Bash(gh *)"
     ],
-    "deny": [
-      "Bash(rm -rf *)",
-      "Bash(git push --force *)"
-    ]
+    "ask": ["Bash(rsync *)", "Bash(ssh *)"],
+    "deny": ["Bash(rm -rf *)", "Bash(git push --force *)", "Bash(git push -f *)"]
   }
 }

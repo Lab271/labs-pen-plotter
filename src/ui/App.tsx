@@ -21,6 +21,14 @@ import {
 } from '../plot/place';
 import { DEFAULT_PAPER_STYLE_ID, PAPER_SIZES, PAPER_STYLES, paperDims } from '../plot/paper';
 import { resolvePen } from '../plot/pen';
+import {
+  DEFAULT_SHAPE,
+  shapePolylines,
+  shapeSize,
+  type ShapeKind,
+  type ShapeSpec,
+} from '../plot/shapes';
+import { DEFAULT_TEXT, missingGlyphs, textPolylines, type TextSpec } from '../plot/font';
 import { copyName, pastePlacement, reorderMany } from '../plot/scene';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
@@ -67,10 +75,15 @@ const LINK_DEAD_MS = 5000;
 type ArtSource = { kind: 'svg'; text: string } | { kind: 'png'; field: FieldSource };
 
 /** An artwork placed on the page (multiple may share the paper). */
+/** The parameters a drawn object's geometry is generated from. */
+type ObjectSpec = ShapeSpec | TextSpec;
+
 interface PlacedArt {
   id: string;
   name: string;
-  kind: 'svg' | 'png';
+  kind: 'svg' | 'png' | 'shape' | 'text';
+  /** Drawn objects only: what to regenerate the geometry from. */
+  spec?: ObjectSpec;
   /** Full-detail flattened polylines (paper-mm, normalized to origin). */
   master: Polyline[];
   widthMm: number;
@@ -569,6 +582,86 @@ export function App() {
     ]);
     setSelectedId(id);
     return id;
+  }
+
+  /**
+   * Geometry for a drawn object, plus the box it occupies. Text measures its own
+   * box from the strokes (a descender or a wide glyph decides it); a shape's box
+   * is the size the operator asked for, even where the outline does not reach
+   * the corners — dragging a 50 mm circle should report 50 mm.
+   */
+  function geometryFor(spec: ObjectSpec): {
+    polylines: Polyline[];
+    widthMm: number;
+    heightMm: number;
+  } {
+    if (spec.kind === 'shape') {
+      return { polylines: shapePolylines(spec), ...shapeSize(spec) };
+    }
+    const polylines = textPolylines(spec);
+    const b = bounds(polylines);
+    return { polylines, widthMm: b.width, heightMm: b.height };
+  }
+
+  /** Add a drawn object at the top-left of the page, at its real size. */
+  function addDrawn(name: string, spec: ObjectSpec) {
+    const { polylines, widthMm, heightMm } = geometryFor(spec);
+    if (polylines.length === 0) {
+      setAlert('Nothing to draw — that text has no characters this font can draw.');
+      return;
+    }
+    const id = `art${++idRef.current}`;
+    setItems((list) => [
+      ...list,
+      {
+        id,
+        name,
+        kind: spec.kind === 'shape' ? 'shape' : 'text',
+        spec,
+        master: polylines,
+        widthMm,
+        heightMm,
+        // Real size, inset from the corner: a drawn object is created at the
+        // size that was asked for, unlike an import, which is fitted to the page.
+        // Cascaded, so adding three shapes in a row does not stack them exactly
+        // on top of each other where they look like one.
+        placement: {
+          x: 10 + (list.length % 8) * 8,
+          y: 10 + (list.length % 8) * 8,
+          scale: 1,
+          rotation: 0,
+        },
+        controls: { ...DEFAULT_CONTROLS },
+        penId: resolvePen(pens, selectedPenId).id,
+      },
+    ]);
+    setSelectedIds([id]);
+  }
+
+  function addShape(shape: ShapeKind) {
+    const spec: ShapeSpec = { ...DEFAULT_SHAPE, shape };
+    addDrawn(shape.charAt(0).toUpperCase() + shape.slice(1), spec);
+  }
+
+  /** Re-generate a drawn object from an edited spec. */
+  function setSpec(id: string, spec: ObjectSpec) {
+    const { polylines, widthMm, heightMm } = geometryFor(spec);
+    setItems((list) =>
+      list.map((i) =>
+        i.id === id
+          ? {
+              ...i,
+              spec,
+              // Keep the previous geometry when an edit leaves nothing drawable
+              // (an empty text box mid-typing) so the object does not vanish
+              // from the page and take its placement with it.
+              master: polylines.length > 0 ? polylines : i.master,
+              widthMm: polylines.length > 0 ? widthMm : i.widthMm,
+              heightMm: polylines.length > 0 ? heightMm : i.heightMm,
+            }
+          : i,
+      ),
+    );
   }
 
   async function onLoadSvg(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1223,6 +1316,28 @@ export function App() {
                 </label>
               </div>
 
+              <div className="mt-1.5 grid grid-cols-4 gap-1">
+                <button className={btn} title="Add a line" onClick={() => addShape('line')}>
+                  Line
+                </button>
+                <button className={btn} title="Add a rectangle" onClick={() => addShape('rect')}>
+                  Rect
+                </button>
+                <button className={btn} title="Add an ellipse" onClick={() => addShape('ellipse')}>
+                  Ellipse
+                </button>
+                <button className={btn} title="Add a polygon" onClick={() => addShape('polygon')}>
+                  Polygon
+                </button>
+                <button
+                  className={`${btn} col-span-4`}
+                  title="Add text, drawn with the single-line plotter font"
+                  onClick={() => addDrawn('Text', { ...DEFAULT_TEXT })}
+                >
+                  + Text
+                </button>
+              </div>
+
               {items.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {items.map((it) => (
@@ -1417,12 +1532,18 @@ export function App() {
                   {plotting && (
                     <p className="mb-1.5 text-xs text-amber-600">Locked while plotting.</p>
                   )}
-                  {!plotting && !sourceAvailable && (
+                  {!plotting && !sourceAvailable && !selectedItem.spec && (
                     <p className="mb-1.5 text-xs text-slate-500">
                       Re-import to re-tune source controls (the current look is kept).
                     </p>
                   )}
-                  {selectedItem.kind === 'png' ? (
+                  {selectedItem.spec ? (
+                    <SpecEditor
+                      spec={selectedItem.spec}
+                      disabled={plotting}
+                      onChange={(spec) => setSpec(selectedItem.id, spec)}
+                    />
+                  ) : selectedItem.kind === 'png' ? (
                     <>
                       <Slider
                         label="Threshold"
@@ -1716,6 +1837,102 @@ function EditToolbar(props: {
       </button>
       {props.locked && <span className="text-amber-600">Locked while plotting</span>}
     </div>
+  );
+}
+
+/**
+ * Editor for a drawn object. Unlike the import controls next to it, these
+ * regenerate the geometry outright rather than retuning a retained source — so
+ * they are cheap, immediate, and still work after a reload (the spec is saved
+ * with the session; an import's source is not).
+ */
+function SpecEditor(props: {
+  spec: ObjectSpec;
+  disabled?: boolean;
+  onChange: (spec: ObjectSpec) => void;
+}) {
+  const { spec, disabled, onChange } = props;
+  if (spec.kind === 'shape') {
+    return (
+      <>
+        <Slider
+          label="Width (mm)"
+          value={spec.widthMm}
+          min={1}
+          max={1000}
+          step={1}
+          disabled={disabled}
+          onChange={(v) => onChange({ ...spec, widthMm: v })}
+        />
+        <Slider
+          label="Height (mm)"
+          value={spec.heightMm}
+          min={1}
+          max={1000}
+          step={1}
+          disabled={disabled}
+          onChange={(v) => onChange({ ...spec, heightMm: v })}
+        />
+        {spec.shape === 'polygon' && (
+          <Slider
+            label="Sides"
+            value={spec.sides}
+            min={3}
+            max={24}
+            step={1}
+            disabled={disabled}
+            onChange={(v) => onChange({ ...spec, sides: v })}
+          />
+        )}
+      </>
+    );
+  }
+  const missing = missingGlyphs(spec.text);
+  return (
+    <>
+      <label className="mb-2 block">
+        <span className="text-xs text-slate-600">Text</span>
+        <textarea
+          className={`${field} mt-1 w-full`}
+          rows={2}
+          value={spec.text}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...spec, text: e.target.value })}
+        />
+      </label>
+      <Slider
+        label="Size (mm)"
+        value={spec.sizeMm}
+        min={2}
+        max={200}
+        step={1}
+        disabled={disabled}
+        onChange={(v) => onChange({ ...spec, sizeMm: v })}
+      />
+      <Slider
+        label="Letter spacing (mm)"
+        value={spec.letterSpacingMm}
+        min={-2}
+        max={10}
+        step={0.5}
+        disabled={disabled}
+        onChange={(v) => onChange({ ...spec, letterSpacingMm: v })}
+      />
+      <Slider
+        label="Line spacing"
+        value={spec.lineSpacing}
+        min={1}
+        max={3}
+        step={0.1}
+        disabled={disabled}
+        onChange={(v) => onChange({ ...spec, lineSpacing: v })}
+      />
+      {missing.length > 0 && (
+        <p className="text-[10px] text-amber-600">
+          Not in this font, so not drawn: {missing.join(' ')}
+        </p>
+      )}
+    </>
   );
 }
 

@@ -1,13 +1,21 @@
 import type { CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import type { ArtControls } from '../plot/controls';
+import type { ShapeSpec } from '../plot/shapes';
+import type { TextSpec } from '../plot/font';
 import type { Calibration } from '../grbl/settings';
 
 /** A placed artwork as persisted (matches App's PlacedArt). */
 export interface PersistedArt {
   id: string;
   name: string;
-  /** 'svg' | 'png' — which source-stage controls apply (optional for old sessions). */
-  kind?: 'svg' | 'png';
+  /** What this object is, and so which controls apply (optional for old sessions). */
+  kind?: 'svg' | 'png' | 'shape' | 'text';
+  /**
+   * For drawn objects: the parameters the geometry is generated from. Persisted
+   * (unlike an import's source, which is in memory only) so text stays editable
+   * after a reload — a label you cannot retype is barely a label.
+   */
+  spec?: ShapeSpec | TextSpec;
   master: Polyline[];
   widthMm: number;
   heightMm: number;
