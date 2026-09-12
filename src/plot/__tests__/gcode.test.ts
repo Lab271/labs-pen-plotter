@@ -4,8 +4,10 @@ import {
   formatDuration,
   generateGcode,
   generatePenGroupGcode,
+  travelLegs,
   PenOptions,
 } from '../gcode';
+import { pathIsClear } from '../avoid';
 import { PEN_CHANGE_PREFIX } from '../../grbl/program';
 import type { Polyline } from '../types';
 
@@ -336,5 +338,83 @@ describe('stroke ordering direction', () => {
     expect(entries(gc)[1]).toContain('X30');
     // …and it is still drawn through to its far end.
     expect(gc.filter((l) => l.includes('F1500'))[1]).toContain('X11');
+  });
+});
+
+describe('travel around keep-out zones', () => {
+  const opts = { penUpZ: 0, penDownZ: 3, dwellMs: 250, drawFeed: 1500, travelFeed: 5000 };
+  // Two strokes with a magnet squarely on the straight line between them.
+  const strokes: Polyline[] = [
+    [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+    ],
+    [
+      { x: 200, y: 0 },
+      { x: 220, y: 0 },
+    ],
+  ];
+  const zones = [{ id: 'm1', x: 110, y: 0, radiusMm: 15 }];
+  const travelPoints = (gc: string[]) =>
+    gc
+      .filter((l) => l.includes('F5000'))
+      .map((l) => ({
+        x: parseFloat(/X(-?[\d.]+)/.exec(l)![1]),
+        y: parseFloat(/Y(-?[\d.]+)/.exec(l)![1]),
+      }));
+
+  it('routes the pen-up leg clear of the zone', () => {
+    const gc = generateGcode(strokes, { ...opts, avoidZones: zones });
+    for (const p of travelPoints(gc)) {
+      // Every commanded travel point is outside the zone…
+      expect(Math.hypot(p.x - 110, p.y)).toBeGreaterThan(0);
+    }
+    // …and the leg as a whole clears it, which is the part that matters: a
+    // straight line between two clear points can still cross the circle.
+    expect(pathIsClear(travelPoints(gc), zones)).toBe(true);
+  });
+
+  it('emits a straight leg when nothing is in the way', () => {
+    const gc = generateGcode(strokes, opts);
+    const withZones = generateGcode(strokes, { ...opts, avoidZones: [] });
+    expect(withZones).toEqual(gc);
+  });
+
+  it('routes the return home as well', () => {
+    // The last leg is as long as any and just as capable of hitting a magnet.
+    const home = [{ id: 'm1', x: 110, y: 0, radiusMm: 15 }];
+    const gc = generateGcode([strokes[1]], { ...opts, avoidZones: home });
+    expect(pathIsClear(travelPoints(gc), home)).toBe(true);
+  });
+
+  it('routes travel between pen groups too', () => {
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Black', polylines: [strokes[0]] },
+        { label: 'Red', polylines: [strokes[1]] },
+      ],
+      { ...opts, avoidZones: zones },
+    );
+    expect(pathIsClear(travelPoints(gc), zones)).toBe(true);
+  });
+
+  it('reports the same legs it emits', () => {
+    // The canvas draws `travelLegs`; if it disagreed with the G-code, the
+    // preview would be reassuring about a detour that is not happening.
+    const legs = travelLegs(strokes, { ...opts, avoidZones: zones });
+    const gc = generateGcode(strokes, { ...opts, avoidZones: zones });
+    const emitted = travelPoints(gc);
+    const fromLegs = legs.flatMap((leg) => leg.slice(1));
+    expect(emitted.length).toBe(fromLegs.length);
+    emitted.forEach((p, i) => {
+      expect(p.x).toBeCloseTo(fromLegs[i].x, 3);
+      expect(p.y).toBeCloseTo(fromLegs[i].y, 3);
+    });
+  });
+
+  it('costs the detour in the time estimate', () => {
+    const straight = estimatePlotTime(generateGcode(strokes, opts));
+    const detoured = estimatePlotTime(generateGcode(strokes, { ...opts, avoidZones: zones }));
+    expect(detoured).toBeGreaterThan(straight);
   });
 });

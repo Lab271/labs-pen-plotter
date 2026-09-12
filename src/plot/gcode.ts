@@ -1,4 +1,6 @@
-import type { Polyline } from './types';
+import type { Point, Polyline } from './types';
+import { routeAround } from './avoid';
+import type { Magnet } from './magnet';
 // The marker's meaning ("stop feeding lines here") belongs to the streamer, so
 // its definition lives there and this module emits what that module reads.
 import { PEN_CHANGE_PREFIX } from '../grbl/program';
@@ -21,6 +23,13 @@ export interface PenOptions {
    * prepared contour would point every overshoot into the piece.
    */
   allowReverse?: boolean;
+  /**
+   * Keep-out zones (hold-down magnets) that pen-up travel must route around.
+   * Travel is otherwise a straight line between strokes, which on an A0 bed can
+   * cross the whole sheet — and a carriage that strikes a magnet at travel feed
+   * drags the sheet and loses the work origin.
+   */
+  avoidZones?: readonly Magnet[];
 }
 
 function fmt(n: number): string {
@@ -80,6 +89,41 @@ export interface PenGroup {
 }
 
 /**
+ * The pen-up legs of a program: from the origin to the first stroke, between
+ * strokes, and home again — routed around any keep-out zones.
+ *
+ * Exported because the canvas draws these: a detour the operator cannot see is
+ * a detour they cannot sanity-check before starting a job.
+ */
+export function travelLegs(polylines: Polyline[], opts: PenOptions): Polyline[] {
+  const zones = opts.avoidZones ?? [];
+  const ordered = orderPolylines(polylines, opts.allowReverse ?? true);
+  const legs: Polyline[] = [];
+  let cursor: Point = { x: 0, y: 0 };
+  for (const poly of ordered) {
+    legs.push(routeAround(cursor, poly[0], zones));
+    cursor = poly[poly.length - 1];
+  }
+  legs.push(routeAround(cursor, { x: 0, y: 0 }, zones));
+  return legs;
+}
+
+/** Emit one pen-up travel leg, following any detour the zones force. */
+function emitTravel(
+  lines: string[],
+  from: Point,
+  to: Point,
+  zones: readonly Magnet[],
+  feed: number,
+) {
+  const path = routeAround(from, to, zones);
+  // The first point is where the tool already is; only the rest are moves.
+  for (let i = 1; i < path.length; i++) {
+    lines.push(`G1 X${fmt(path[i].x)} Y${fmt(path[i].y)} F${feed}`);
+  }
+}
+
+/**
  * Generate GRBL G-code in WORK coordinates from polylines given in paper
  * millimeters with the top-left corner as origin.
  *
@@ -98,12 +142,14 @@ export function generateGcode(polylines: Polyline[], opts: PenOptions): string[]
   const draw = Math.round(opts.drawFeed);
   const travel = Math.round(opts.travelFeed);
 
+  const zones = opts.avoidZones ?? [];
   const lines: string[] = ['G21', 'G90', `G0 Z${up}`];
+  let cursor: Point = { x: 0, y: 0 };
 
   for (const poly of orderPolylines(polylines, opts.allowReverse ?? true)) {
     const start = poly[0];
-    // Travel to the stroke start with the pen up.
-    lines.push(`G1 X${fmt(start.x)} Y${fmt(start.y)} F${travel}`);
+    // Travel to the stroke start with the pen up, around any keep-out zones.
+    emitTravel(lines, cursor, start, zones, travel);
     // Pen down + settle.
     lines.push(`G0 Z${down}`, `G4 P${dwell}`);
     // Draw the remaining points.
@@ -112,10 +158,11 @@ export function generateGcode(polylines: Polyline[], opts: PenOptions): string[]
     }
     // Pen up + settle before the next travel.
     lines.push(`G0 Z${up}`, `G4 P${dwell}`);
+    cursor = poly[poly.length - 1];
   }
 
   // Return to the work origin (pen up).
-  lines.push(`G1 X0 Y0 F${travel}`);
+  emitTravel(lines, cursor, { x: 0, y: 0 }, zones, travel);
   return lines;
 }
 
@@ -308,19 +355,23 @@ export function generatePenGroupGcode(groups: PenGroup[], opts: PenOptions): str
   const travel = Math.round(opts.travelFeed);
   const down = fmt(opts.penDownZ);
 
+  const zones = opts.avoidZones ?? [];
   const lines: string[] = ['G21', 'G90', `G0 Z${up}`];
+  let cursor: Point = { x: 0, y: 0 };
   drawable.forEach((group, i) => {
     for (const poly of orderPolylines(group.polylines, opts.allowReverse ?? true)) {
       const start = poly[0];
-      lines.push(`G1 X${fmt(start.x)} Y${fmt(start.y)} F${travel}`);
+      emitTravel(lines, cursor, start, zones, travel);
       lines.push(`G0 Z${down}`, `G4 P${dwell}`);
       for (let j = 1; j < poly.length; j++) {
         lines.push(`G1 X${fmt(poly[j].x)} Y${fmt(poly[j].y)} F${draw}`);
       }
       lines.push(`G0 Z${up}`, `G4 P${dwell}`);
+      cursor = poly[poly.length - 1];
     }
     // Park at the origin before the pen change (and at the end of the job).
-    lines.push(`G1 X0 Y0 F${travel}`);
+    emitTravel(lines, cursor, { x: 0, y: 0 }, zones, travel);
+    cursor = { x: 0, y: 0 };
     if (i < drawable.length - 1) lines.push(`${PEN_CHANGE_PREFIX}${drawable[i + 1].label}`);
   });
   return lines;
