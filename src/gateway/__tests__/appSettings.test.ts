@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CALIBRATION } from '../../grbl/settings';
 import { DEFAULT_PENS } from '../../plot/pen';
+import { DEFAULT_KNIFE } from '../../plot/knife';
 import {
   APP_SETTINGS_VERSION,
   appSettingsFromLegacySession,
@@ -34,8 +35,21 @@ describe('normalizeAppSettings', () => {
 
   it('drops unknown keys instead of persisting them', () => {
     const s = normalizeAppSettings({ calibration: { nonsense: 1 }, somethingElse: true });
-    expect(Object.keys(s).sort()).toEqual(['calibration', 'pens', 'version']);
+    expect(Object.keys(s).sort()).toEqual(['calibration', 'knife', 'pens', 'version']);
     expect(s.calibration).toEqual(DEFAULT_CALIBRATION);
+  });
+
+  it('normalises the knife profile, defaulting what is unusable', () => {
+    expect(normalizeAppSettings({}).knife).toEqual(DEFAULT_KNIFE);
+    // Blade depth and feed rate go into real G-code: a hand-edited string or a
+    // negative overcut must fall back rather than reach the machine.
+    const k = normalizeAppSettings({
+      knife: { cutFeed: 600, downZ: 'deep', overcutMm: -3, bladeOffsetMm: 0.3 },
+    }).knife;
+    expect(k.cutFeed).toBe(600);
+    expect(k.downZ).toBe(DEFAULT_KNIFE.downZ);
+    expect(k.overcutMm).toBe(DEFAULT_KNIFE.overcutMm);
+    expect(k.bladeOffsetMm).toBe(0.3);
   });
 
   it('normalises the pen library, defaulting it when unusable', () => {

@@ -27,6 +27,12 @@ interface Props {
   paperH: number;
   /** How the sheet looks (colour + pattern). Preview only — never plotted. */
   paperStyleId?: string;
+  /**
+   * Cutting mode: the job is a blade job, so everything is drawn as a cut line
+   * rather than in a pen's colour. There is one blade, and what matters on
+   * screen is which lines the knife will follow.
+   */
+  cutting?: boolean;
   artworks: CanvasArt[];
   /** Every selected object. The transformer acts on all of them at once. */
   selectedIds: string[];
@@ -49,6 +55,7 @@ export function PlotCanvas(props: Props) {
     paperW,
     paperH,
     paperStyleId,
+    cutting = false,
     artworks,
     selectedIds,
     penPos,
@@ -166,7 +173,11 @@ export function PlotCanvas(props: Props) {
               // The pen's own colour once it has one: selection is shown by the
               // transform handles, so the preview does not have to recolour the
               // artwork to indicate it — and recolouring would hide the pen.
-              stroke={a.penColor ?? (selected.has(a.id) ? selectedStroke : strokeColor)}
+              stroke={
+                cutting
+                  ? CUT_STROKE
+                  : (a.penColor ?? (selected.has(a.id) ? selectedStroke : strokeColor))
+              }
               strokeWidth={penPx(a.penWidthMm)}
               strokeScaleEnabled={false}
               lineCap="round"
@@ -186,6 +197,7 @@ export function PlotCanvas(props: Props) {
       pxPerMm,
       selected,
       onSelectMany,
+      cutting,
     ],
   );
 
@@ -365,6 +377,9 @@ function makePatternTile(style: PaperStyle): HTMLCanvasElement | null {
   }
   return c;
 }
+
+/** Cut lines are red, the convention every cutter's software uses. */
+const CUT_STROKE = '#dc2626';
 
 /** Shift/Cmd/Ctrl on a click means "add to the selection" rather than "replace it". */
 function isAdditive(e: Konva.KonvaEventObject<MouseEvent>): boolean {

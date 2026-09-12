@@ -11,7 +11,12 @@ import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
 import { ImportWizard, type ImportSpec } from './ImportWizard';
 import { applyDetail } from '../plot/detail';
-import { estimatePlotTime, formatDuration, generatePenGroupGcode } from '../plot/gcode';
+import {
+  estimatePlotTime,
+  formatDuration,
+  generateGcode,
+  generatePenGroupGcode,
+} from '../plot/gcode';
 import {
   actualSizePlacement,
   anchorPlacement,
@@ -31,6 +36,7 @@ import {
 } from '../plot/shapes';
 import { DEFAULT_TEXT, missingGlyphs, textPolylines, type TextSpec } from '../plot/font';
 import { copyName, pastePlacement, reorderMany } from '../plot/scene';
+import { prepareForCut } from '../plot/cut';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
   type ArtControls,
@@ -174,6 +180,7 @@ export function App() {
   const [settingsSynced, setSettingsSynced] = useState(false);
   const cal = settings.calibration;
   const pens = settings.pens;
+  const knife = settings.knife;
   const setCal = useCallback(
     (update: (prev: Calibration) => Calibration) =>
       setSettings((s) => ({ ...s, calibration: update(s.calibration) })),
@@ -257,6 +264,10 @@ export function App() {
   // The pen newly imported artwork gets. Per job (it is part of the drawing),
   // while the library of pens that exist is app settings.
   const [selectedPenId, setSelectedPenId] = useState<string | undefined>(restored?.selectedPenId);
+  // Draw with a pen, or cut with a drag knife. The mode decides which tool
+  // profile a job uses, how an import is placed, and what the machine is told.
+  const [mode, setMode] = useState<'draw' | 'cut'>(restored?.mode ?? 'draw');
+  const cutting = mode === 'cut';
 
   useEffect(() => {
     const ctrl = new GatewayClient();
@@ -379,6 +390,7 @@ export function App() {
           if (s.customPaper) setCustomPaper(s.customPaper);
           if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
           if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
+          if (s.mode) setMode(s.mode);
           // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
           // client talking to an older daemon that has no app-settings record —
           // the `appSettings` snapshot field (emitted right after this) wins when
@@ -433,6 +445,7 @@ export function App() {
       customPaper,
       paperStyleId,
       selectedPenId,
+      mode,
     };
     saveSession(blob);
     if (sessionLoadedRef.current) ctrlRef.current?.saveSession(blob);
@@ -446,6 +459,7 @@ export function App() {
     customPaper,
     paperStyleId,
     selectedPenId,
+    mode,
   ]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
@@ -574,7 +588,17 @@ export function App() {
     // deleted from the library since, and artwork must always name a real pen.
     const pen = resolvePen(pens, selectedPenId);
     sourcesRef.current.set(id, source);
-    const placement = fitPlacement(art.widthMm, art.heightMm, 0, paper.widthMm, paper.heightMm);
+    // A cut is 1:1 or it is wrong — the sticker has to match the print it was
+    // designed against, so cutting never scales the artwork to fit the page.
+    // Where the file says which part of the page it occupies, that is used.
+    const placement = cutting
+      ? placeOnPage(art.widthMm, art.heightMm, art.pageOffset, {
+          x: 0,
+          y: 0,
+          scale: 1,
+          rotation: 0,
+        })
+      : fitPlacement(art.widthMm, art.heightMm, 0, paper.widthMm, paper.heightMm);
     setItems((list) => [
       ...list,
       {
@@ -796,17 +820,33 @@ export function App() {
 
   // The program that Plot sends — built here so the time estimate is costed on
   // exactly the G-code that will run, pen changes and all.
-  const program = useMemo(
-    () =>
-      generatePenGroupGcode(penGroups, {
-        penUpZ: cal.penUpZ,
-        penDownZ: cal.penDownZ,
-        dwellMs: cal.penDwellMs,
-        drawFeed: cal.drawFeed,
-        travelFeed: cal.travelFeed,
-      }),
-    [penGroups, cal],
-  );
+  //
+  // Cutting is a different tool, not a different generator: the geometry is
+  // prepared for a blade (overcut, corner compensation) and the knife's own
+  // Z and feeds are used, but the same writer emits it. Pen changes do not
+  // apply — there is one blade — so the whole job is one group.
+  const program = useMemo(() => {
+    if (cutting) {
+      const placed = penGroups.flatMap((g) => g.polylines);
+      return generateGcode(prepareForCut(placed, knife), {
+        penUpZ: knife.upZ,
+        penDownZ: knife.downZ,
+        dwellMs: knife.dwellMs,
+        drawFeed: knife.cutFeed,
+        travelFeed: knife.travelFeed,
+        // A prepared contour must not be reversed: blade-offset compensation
+        // overshoots each corner along the direction of travel.
+        allowReverse: false,
+      });
+    }
+    return generatePenGroupGcode(penGroups, {
+      penUpZ: cal.penUpZ,
+      penDownZ: cal.penDownZ,
+      dwellMs: cal.penDwellMs,
+      drawFeed: cal.drawFeed,
+      travelFeed: cal.travelFeed,
+    });
+  }, [penGroups, cal, cutting, knife]);
 
   // Estimated total plot time for the currently placed artwork (recomputed when
   // the artwork, layout, or feeds change). Walks the program that will actually
@@ -1089,6 +1129,7 @@ export function App() {
           name={importing.name}
           source={importing.source}
           initial={importing.initial}
+          contourOnly={cutting}
           onCancel={() => setImporting(null)}
           onConfirm={(result, spec) => {
             const { artId, name, source } = importing;
@@ -1148,6 +1189,10 @@ export function App() {
           onCalField={setCalField}
           pens={pens}
           onPens={(next) => setSettings((prev) => ({ ...prev, pens: next }))}
+          knife={knife}
+          onKnife={(key) => (value) =>
+            setSettings((prev) => ({ ...prev, knife: { ...prev.knife, [key]: value } }))
+          }
           grbl={grbl}
           connected={connected}
           firmwareVersion={version}
@@ -1190,6 +1235,19 @@ export function App() {
           {connected ? `GRBL ${version} · bed ${bedW}×${bedH} mm` : 'not connected'}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <label className="text-xs" htmlFor="job-mode">
+            Mode
+          </label>
+          <select
+            id="job-mode"
+            className={field}
+            value={mode}
+            title="Draw with a pen, or cut with a drag knife"
+            onChange={(e) => setMode(e.target.value as 'draw' | 'cut')}
+          >
+            <option value="draw">Draw</option>
+            <option value="cut">Cut</option>
+          </select>
           <label className="text-xs">Paper</label>
           <select
             className={field}
@@ -1264,7 +1322,7 @@ export function App() {
             disabled={!connected || items.length === 0}
             onClick={onPlot}
           >
-            ▶ Plot
+            {cutting ? '✂ Cut' : '▶ Plot'}
           </button>
         </div>
       </header>
@@ -1331,6 +1389,7 @@ export function App() {
                 paperW={paper.widthMm}
                 paperH={paper.heightMm}
                 paperStyleId={paperStyleId}
+                cutting={cutting}
                 artworks={displayItems}
                 selectedIds={selectedIds}
                 onSelect={selectObject}
@@ -1441,7 +1500,7 @@ export function App() {
                   Place on page
                 </button>
               </div>
-              <label className="mt-2 flex items-center gap-1.5">
+              <label className={`mt-2 flex items-center gap-1.5 ${cutting ? 'hidden' : ''}`}>
                 <span className="text-xs text-slate-600">Pen</span>
                 <span
                   className="h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300"

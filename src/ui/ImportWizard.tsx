@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALGORITHMS,
+  contourAlgorithms,
   DEFAULT_PARAMS,
   runAlgorithm,
   type AlgorithmId,
@@ -31,6 +32,11 @@ export interface ImportWizardProps {
   source: FieldSource;
   /** Reopening an existing import starts from its settings. */
   initial?: ImportSpec;
+  /**
+   * Cutting mode: only conversions that produce outlines are offered. A fill
+   * handed to a drag knife shreds the sticker instead of cutting it out.
+   */
+  contourOnly?: boolean;
   onConfirm: (
     result: { polylines: Polyline[]; widthMm: number; heightMm: number },
     spec: ImportSpec,
@@ -52,7 +58,13 @@ type Step = 'adjust' | 'convert';
 export function ImportWizard(p: ImportWizardProps) {
   const [step, setStep] = useState<Step>('adjust');
   const [adjust, setAdjust] = useState<AdjustSpec>(p.initial?.adjust ?? DEFAULT_ADJUST);
-  const [algorithm, setAlgorithm] = useState<AlgorithmId>(p.initial?.algorithm ?? 'outline');
+  const available = p.contourOnly ? contourAlgorithms() : ALGORITHMS;
+  const [algorithm, setAlgorithm] = useState<AlgorithmId>(() => {
+    const wanted = p.initial?.algorithm ?? 'outline';
+    // A job switched to cutting can carry a fill algorithm from an earlier
+    // import; fall back rather than offering something that is not in the list.
+    return available.some((a) => a.id === wanted) ? wanted : available[0].id;
+  });
   const [params, setParams] = useState<AlgorithmParams>(p.initial?.params ?? DEFAULT_PARAMS);
 
   const adjusted = useMemo(() => adjustField(p.source, adjust), [p.source, adjust]);
@@ -117,6 +129,8 @@ export function ImportWizard(p: ImportWizardProps) {
               <ConvertControls
                 algorithm={algorithm}
                 params={params}
+                available={available}
+                contourOnly={!!p.contourOnly}
                 onAlgorithm={setAlgorithm}
                 onParams={setParams}
               />
@@ -314,11 +328,13 @@ function AdjustControls(props: { adjust: AdjustSpec; onChange: (a: AdjustSpec) =
 function ConvertControls(props: {
   algorithm: AlgorithmId;
   params: AlgorithmParams;
+  available: typeof ALGORITHMS;
+  contourOnly: boolean;
   onAlgorithm: (a: AlgorithmId) => void;
   onParams: (p: AlgorithmParams) => void;
 }) {
-  const { algorithm, params, onAlgorithm, onParams } = props;
-  const info = ALGORITHMS.find((a) => a.id === algorithm) ?? ALGORITHMS[0];
+  const { algorithm, params, available, onAlgorithm, onParams } = props;
+  const info = available.find((a) => a.id === algorithm) ?? available[0];
   const set = (key: keyof AlgorithmParams) => (v: number) => onParams({ ...params, [key]: v });
   const RANGES: Record<
     keyof AlgorithmParams,
@@ -339,13 +355,19 @@ function ConvertControls(props: {
         value={algorithm}
         onChange={(e) => onAlgorithm(e.target.value as AlgorithmId)}
       >
-        {ALGORITHMS.map((a) => (
+        {available.map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
           </option>
         ))}
       </select>
       <p className="mb-3 text-[11px] text-slate-500">{info.description}</p>
+      {props.contourOnly && (
+        <p className="mb-3 text-[11px] text-amber-600">
+          Cutting mode: only outline conversions are offered — a fill handed to a drag knife shreds
+          the sticker instead of cutting it out.
+        </p>
+      )}
       {info.params.map((key) => (
         <WizardSlider
           key={key}

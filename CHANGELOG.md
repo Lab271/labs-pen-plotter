@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Cutting mode.** A job is now Draw or Cut. Cutting uses its own knife profile (Z, dwell,
+  cut feed, travel feed), places imports at 1:1 where the file puts them rather than fitting
+  them to the page, offers only outline conversions in the import wizard, draws the preview
+  in cut red, and prepares the toolpath for a drag knife: an **overcut** that carries the
+  blade past the closing point so the piece releases, and optional **blade-offset
+  compensation** that overshoots sharp corners (off by default until the offset has been
+  measured on the actual holder). Stroke reversal is disabled while cutting — compensation
+  overshoots along the direction of travel, so a reversed contour would point every
+  overshoot into the piece. Draw mode is unchanged.
 - **Three more conversion algorithms**, bringing the import wizard to five: **Crosshatch**
   (the darker the tone, the more directions it is hatched from), **Stippling** (dots placed
   by Floyd–Steinberg error diffusion, so density follows tone instead of banding), and

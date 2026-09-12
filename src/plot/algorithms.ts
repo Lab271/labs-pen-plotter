@@ -46,6 +46,12 @@ export interface AlgorithmInfo {
   description: string;
   /** Which parameters this algorithm actually uses, for the tuning panel. */
   params: (keyof AlgorithmParams)[];
+  /**
+   * True when the algorithm *fills* an area rather than outlining it. A fill is
+   * meaningless to a drag knife — it would shred the sticker — so cutting mode
+   * offers only the algorithms where this is false.
+   */
+  fills: boolean;
 }
 
 export const ALGORITHMS: AlgorithmInfo[] = [
@@ -54,32 +60,42 @@ export const ALGORITHMS: AlgorithmInfo[] = [
     name: 'Outline',
     description: 'Traces the edges between light and dark. Line art, logos, high-contrast photos.',
     params: ['threshold', 'levels', 'toleranceMm'],
+    fills: false,
   },
   {
     id: 'hatch',
     name: 'Hatching',
     description: 'Fills dark areas with parallel lines, denser where the image is darker.',
     params: ['threshold', 'levels', 'spacingMm', 'angleDeg'],
+    fills: true,
   },
   {
     id: 'crosshatch',
     name: 'Crosshatch',
     description: 'Hatching from several directions — the darker the tone, the more directions.',
     params: ['threshold', 'spacingMm', 'angleDeg', 'passes'],
+    fills: true,
   },
   {
     id: 'stipple',
     name: 'Stippling',
     description: 'Dots, spread by error diffusion. Soft gradients, portraits, textures.',
     params: ['threshold', 'spacingMm'],
+    fills: true,
   },
   {
     id: 'edges',
     name: 'Edge detect',
     description: 'Finds where the image changes sharply. Photographs with a busy background.',
     params: ['threshold', 'toleranceMm'],
+    fills: false,
   },
 ];
+
+/** The algorithms a drag knife can use: outlines, never fills. */
+export function contourAlgorithms(): AlgorithmInfo[] {
+  return ALGORITHMS.filter((a) => !a.fills);
+}
 
 export interface AlgorithmResult {
   polylines: Polyline[];

@@ -15,6 +15,7 @@
  */
 import { DEFAULT_CALIBRATION, type Calibration } from '../grbl/settings';
 import { DEFAULT_PENS, normalizePens, type Pen } from '../plot/pen';
+import { DEFAULT_KNIFE, normalizeKnife, type KnifeProfile } from '../plot/knife';
 
 export interface AppSettings {
   /**
@@ -31,6 +32,12 @@ export interface AppSettings {
    * that exist belong to the machine's shelf, so every client sees the same set.
    */
   pens: Pen[];
+  /**
+   * The drag-knife tool profile. Separate from the pen's calibration because
+   * the two tools want different depths and feeds, and switching mode should
+   * not mean re-typing either of them.
+   */
+  knife: KnifeProfile;
 }
 
 export const APP_SETTINGS_VERSION = 1;
@@ -39,6 +46,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   version: APP_SETTINGS_VERSION,
   calibration: { ...DEFAULT_CALIBRATION },
   pens: DEFAULT_PENS.map((p) => ({ ...p })),
+  knife: { ...DEFAULT_KNIFE },
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -72,6 +80,7 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     version: APP_SETTINGS_VERSION,
     calibration: normalizeCalibration(rec.calibration),
     pens: normalizePens(rec.pens),
+    knife: normalizeKnife(rec.knife),
   };
 }
 

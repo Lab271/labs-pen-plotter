@@ -60,6 +60,12 @@ export interface Session {
   /** The pen newly imported artwork is assigned (`Pen.id`). Optional for older sessions. */
   selectedPenId?: string;
   /**
+   * What this job is: drawing with a pen, or cutting with a drag knife. Part of
+   * the session rather than the settings because it belongs to the job on the
+   * bed — the sheet of vinyl is what makes it a cut. Optional for old sessions.
+   */
+  mode?: 'draw' | 'cut';
+  /**
    * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
    * session or an old daemon keeps a tuned setup) but no longer written: the
    * machine setup is app settings now, stored on the gateway — see

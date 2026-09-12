@@ -1,5 +1,6 @@
 import type { Calibration } from '../grbl/settings';
 import type { Pen } from '../plot/pen';
+import type { KnifeProfile } from '../plot/knife';
 import type { GrblSettings } from '../grbl/types';
 import { btn, btnPrimary, field } from './styles';
 
@@ -29,6 +30,9 @@ export interface SettingsPageProps {
   /** The pen library — what the operator owns, shared with every client. */
   pens: Pen[];
   onPens: (pens: Pen[]) => void;
+  /** The drag-knife profile, used in cutting mode. */
+  knife: KnifeProfile;
+  onKnife: (key: keyof KnifeProfile) => (value: number) => void;
   /** The controller's own `$$` settings, shown read-only. */
   grbl: GrblSettings;
   connected: boolean;
@@ -210,6 +214,60 @@ export function SettingsPage(p: SettingsPageProps) {
             >
               + Add pen
             </button>
+          </Group>
+
+          <Group title="Knife (cutting mode)">
+            <p className="mb-1.5 text-xs text-slate-500">
+              Used instead of the pen settings when the job is set to Cut. A drag knife goes deeper
+              and slower than a pen, and needs two things a pen does not.
+            </p>
+            <NumberField
+              label="Knife-down Z"
+              value={p.knife.downZ}
+              step={0.1}
+              onChange={p.onKnife('downZ')}
+            />
+            <NumberField
+              label="Knife-up Z"
+              value={p.knife.upZ}
+              step={0.1}
+              onChange={p.onKnife('upZ')}
+            />
+            <NumberField
+              label="Dwell (ms)"
+              value={p.knife.dwellMs}
+              step={10}
+              onChange={p.onKnife('dwellMs')}
+            />
+            <NumberField
+              label="Cut feed"
+              value={p.knife.cutFeed}
+              step={100}
+              onChange={p.onKnife('cutFeed')}
+            />
+            <NumberField
+              label="Travel feed"
+              value={p.knife.travelFeed}
+              step={100}
+              onChange={p.onKnife('travelFeed')}
+            />
+            <NumberField
+              label="Overcut (mm)"
+              value={p.knife.overcutMm}
+              step={0.1}
+              onChange={p.onKnife('overcutMm')}
+            />
+            <NumberField
+              label="Blade offset (mm)"
+              value={p.knife.bladeOffsetMm}
+              step={0.05}
+              onChange={p.onKnife('bladeOffsetMm')}
+            />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Overcut carries the blade past the closing point so the loop releases. Blade offset is
+              how far the tip trails the holder's pivot (typically 0.25–0.5 mm); leave it at 0 until
+              it has been measured on the actual blade — a wrong value is worse than none.
+            </p>
           </Group>
 
           <Group title="Import defaults">
