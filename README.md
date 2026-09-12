@@ -46,6 +46,11 @@ unattended **Raspberry Pi** setup needs.
 - **Paper type.** Preview the drawing on the stock you are about to use — plain, cream,
   dotted, grid, lined, kraft, or black card (which previews the artwork light, for a white
   or metallic pen). Appearance only: it never touches the generated paths.
+- **Draw shapes and text.** Line, rectangle, ellipse and polygon at the size you ask for,
+  plus text in a built-in **single-line** font — the skeleton of each letter, not an
+  outline traced as a hollow double line. Text stays editable (content, size, letter and
+  line spacing) after a reload, and characters the face can't draw are named rather than
+  silently dropped.
 - **Edit the page as objects.** Select one, several (Shift-click), or drag a band over
   them; move the whole selection at once; copy, paste, duplicate and delete, with the
   usual ⌘C/⌘V/⌘D/⌘A/⌫ shortcuts; and reorder the stack. Editing locks while a plot runs.
