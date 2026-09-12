@@ -329,6 +329,7 @@ function ConvertControls(props: {
     spacingMm: { min: 0.3, max: 10, step: 0.1, label: 'Line spacing (mm)' },
     angleDeg: { min: -90, max: 90, step: 5, label: 'Angle (°)' },
     toleranceMm: { min: 0.05, max: 2, step: 0.05, label: 'Simplify (mm)' },
+    passes: { min: 1, max: 6, step: 1, label: 'Directions' },
   };
   return (
     <>

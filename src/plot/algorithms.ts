@@ -13,7 +13,7 @@ import { isoContours, type FieldSource } from './raster';
 import { simplifyPolyline } from './svg';
 import type { Polyline } from './types';
 
-export type AlgorithmId = 'outline' | 'hatch';
+export type AlgorithmId = 'outline' | 'hatch' | 'crosshatch' | 'stipple' | 'edges';
 
 export interface AlgorithmParams {
   /** Darkness cutoff 0..1: tones lighter than this get no ink. */
@@ -26,6 +26,8 @@ export interface AlgorithmParams {
   angleDeg: number;
   /** Polyline simplification tolerance, mm. */
   toleranceMm: number;
+  /** Crosshatch: how many directions the hatching is built from. */
+  passes: number;
 }
 
 export const DEFAULT_PARAMS: AlgorithmParams = {
@@ -34,6 +36,7 @@ export const DEFAULT_PARAMS: AlgorithmParams = {
   spacingMm: 1.5,
   angleDeg: 45,
   toleranceMm: 0.2,
+  passes: 3,
 };
 
 export interface AlgorithmInfo {
@@ -58,6 +61,24 @@ export const ALGORITHMS: AlgorithmInfo[] = [
     description: 'Fills dark areas with parallel lines, denser where the image is darker.',
     params: ['threshold', 'levels', 'spacingMm', 'angleDeg'],
   },
+  {
+    id: 'crosshatch',
+    name: 'Crosshatch',
+    description: 'Hatching from several directions — the darker the tone, the more directions.',
+    params: ['threshold', 'spacingMm', 'angleDeg', 'passes'],
+  },
+  {
+    id: 'stipple',
+    name: 'Stippling',
+    description: 'Dots, spread by error diffusion. Soft gradients, portraits, textures.',
+    params: ['threshold', 'spacingMm'],
+  },
+  {
+    id: 'edges',
+    name: 'Edge detect',
+    description: 'Finds where the image changes sharply. Photographs with a busy background.',
+    params: ['threshold', 'toleranceMm'],
+  },
 ];
 
 export interface AlgorithmResult {
@@ -71,8 +92,18 @@ export function runAlgorithm(
   src: FieldSource,
   params: AlgorithmParams,
 ): AlgorithmResult {
-  const polylines = id === 'hatch' ? hatch(src, params) : outline(src, params);
-  return finish(polylines);
+  switch (id) {
+    case 'hatch':
+      return finish(hatch(src, params));
+    case 'crosshatch':
+      return finish(crosshatch(src, params));
+    case 'stipple':
+      return finish(stipple(src, params));
+    case 'edges':
+      return finish(outline(edgeField(src), { ...params, levels: 1 }));
+    default:
+      return finish(outline(src, params));
+  }
 }
 
 /**
@@ -172,6 +203,127 @@ function hatch(src: FieldSource, params: AlgorithmParams): Polyline[] {
     pushRun(out, run, spacing);
   }
   return out;
+}
+
+/**
+ * Crosshatch: hatching from several directions, where the number of directions
+ * is what carries the tone.
+ *
+ * Each pass is a full hatch at its own angle, but only in tones dark enough to
+ * deserve it: the first pass covers everything past the threshold, the last only
+ * the darkest areas. That is how hatching is built up by hand, and it gives
+ * darker darks than a single direction can without the lines merging into a
+ * solid block of ink.
+ */
+function crosshatch(src: FieldSource, params: AlgorithmParams): Polyline[] {
+  const passes = Math.max(1, Math.min(6, Math.round(params.passes)));
+  const out: Polyline[] = [];
+  for (let k = 0; k < passes; k++) {
+    // Spread the directions evenly over a half turn — past 180° a line repeats
+    // the direction of (angle - 180), so the extra passes would draw on top of
+    // earlier ones instead of crossing them.
+    const angleDeg = params.angleDeg + (k * 180) / passes;
+    // Pass k only draws where the tone is in the darkest (k+1)/passes of the range.
+    const threshold = (params.threshold * (passes - k)) / passes;
+    out.push(...hatch(src, { ...params, angleDeg, threshold, levels: 1 }));
+  }
+  return out;
+}
+
+/**
+ * Stippling: dots on a grid, placed by Floyd–Steinberg error diffusion so that
+ * their local density matches the tone. Error diffusion rather than a threshold
+ * per cell, because a plain threshold produces flat bands where a gradient
+ * should be smooth — the error carried into neighbouring cells is what turns a
+ * binary decision into continuous tone.
+ *
+ * Each dot is a short segment rather than a point: the G-code generator draws
+ * polylines, and a zero-length one leaves the pen down in one spot without
+ * moving, which on an inked tip blots rather than dots.
+ */
+function stipple(src: FieldSource, params: AlgorithmParams): Polyline[] {
+  const { gw, gh, mmPerGrid } = src;
+  const spacing = Math.max(0.3, params.spacingMm);
+  const cellsX = Math.max(1, Math.floor(((gw - 1) * mmPerGrid) / spacing));
+  const cellsY = Math.max(1, Math.floor(((gh - 1) * mmPerGrid) / spacing));
+  const threshold = Math.min(1, Math.max(0, params.threshold));
+
+  // Average the image down to the dot grid first: sampling one pixel per cell
+  // would let noise decide where dots land.
+  const tone = new Float32Array(cellsX * cellsY);
+  for (let cy = 0; cy < cellsY; cy++) {
+    for (let cx = 0; cx < cellsX; cx++) {
+      const x0 = Math.floor((cx * (gw - 1)) / cellsX);
+      const x1 = Math.max(x0 + 1, Math.floor(((cx + 1) * (gw - 1)) / cellsX));
+      const y0 = Math.floor((cy * (gh - 1)) / cellsY);
+      const y1 = Math.max(y0 + 1, Math.floor(((cy + 1) * (gh - 1)) / cellsY));
+      let sum = 0;
+      let n = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          sum += src.field[y * gw + x];
+          n++;
+        }
+      // Darkness, scaled so `threshold` is the lightest tone that gets any dots.
+      const darkness = 1 - sum / Math.max(1, n);
+      tone[cy * cellsX + cx] = threshold > 0 ? Math.min(1, darkness / threshold) : 0;
+    }
+  }
+
+  const dotLen = Math.min(0.4, spacing / 3);
+  const out: Polyline[] = [];
+  for (let cy = 0; cy < cellsY; cy++) {
+    for (let cx = 0; cx < cellsX; cx++) {
+      const i = cy * cellsX + cx;
+      const v = tone[i];
+      const on = v >= 0.5;
+      const err = v - (on ? 1 : 0);
+      // Floyd–Steinberg: push the error right, and down-left/down/down-right.
+      const add = (x: number, y: number, w: number) => {
+        if (x < 0 || y < 0 || x >= cellsX || y >= cellsY) return;
+        tone[y * cellsX + x] += err * w;
+      };
+      add(cx + 1, cy, 7 / 16);
+      add(cx - 1, cy + 1, 3 / 16);
+      add(cx, cy + 1, 5 / 16);
+      add(cx + 1, cy + 1, 1 / 16);
+      if (!on) continue;
+      const x = (cx + 0.5) * spacing;
+      const y = (cy + 0.5) * spacing;
+      out.push([
+        { x: x - dotLen / 2, y },
+        { x: x + dotLen / 2, y },
+      ]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Sobel edge magnitude, returned as a field where strong edges are *dark* — so
+ * the existing contour tracer, which follows a brightness level, traces the
+ * edges. Normalised by the strongest edge in the image, so the threshold means
+ * the same thing on a flat photograph as on a high-contrast one.
+ */
+export function edgeField(src: FieldSource): FieldSource {
+  const { field, gw, gh } = src;
+  const out = new Float32Array(gw * gh).fill(1);
+  let max = 0;
+  const mag = new Float32Array(gw * gh);
+  for (let y = 1; y < gh - 1; y++) {
+    for (let x = 1; x < gw - 1; x++) {
+      const at = (dx: number, dy: number) => field[(y + dy) * gw + (x + dx)];
+      const gx = -at(-1, -1) - 2 * at(-1, 0) - at(-1, 1) + at(1, -1) + 2 * at(1, 0) + at(1, 1);
+      const gy = -at(-1, -1) - 2 * at(0, -1) - at(1, -1) + at(-1, 1) + 2 * at(0, 1) + at(1, 1);
+      const m = Math.hypot(gx, gy);
+      mag[y * gw + x] = m;
+      if (m > max) max = m;
+    }
+  }
+  if (max > 0) {
+    for (let i = 0; i < mag.length; i++) out[i] = 1 - mag[i] / max;
+  }
+  return { field: out, gw, gh, mmPerGrid: src.mmPerGrid };
 }
 
 /** Keep a hatch run only if it is long enough to be worth a pen-down cycle. */

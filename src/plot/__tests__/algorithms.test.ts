@@ -136,3 +136,138 @@ describe('hatch', () => {
     expect(r.polylines.length).toBeGreaterThan(0);
   });
 });
+
+describe('crosshatch', () => {
+  it('draws in several directions', () => {
+    const r = runAlgorithm(
+      'crosshatch',
+      blob(40, 1),
+      params({ spacingMm: 2, angleDeg: 0, passes: 3, threshold: 0.9 }),
+    );
+    const angles = new Set(
+      r.polylines.map(([a, b]) => {
+        const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+        // Direction only — a line and its reverse are the same hatch direction.
+        return Math.round(((deg % 180) + 180) % 180);
+      }),
+    );
+    expect(angles.size).toBe(3);
+  });
+
+  it('spreads directions over a half turn, so passes cross rather than repeat', () => {
+    // Past 180° a direction repeats one already drawn, and the extra pass would
+    // land on top of an earlier one instead of crossing it.
+    const r = runAlgorithm(
+      'crosshatch',
+      blob(40, 1),
+      params({ spacingMm: 2, angleDeg: 0, passes: 2, threshold: 0.9 }),
+    );
+    const angles = [
+      ...new Set(
+        r.polylines.map(([a, b]) =>
+          Math.round(((((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI) % 180) + 180) % 180),
+        ),
+      ),
+    ].sort((x, y) => x - y);
+    expect(angles).toEqual([0, 90]);
+  });
+
+  it('gives the darkest tone more directions than a mid tone', () => {
+    const dark = new Float32Array(40 * 40).fill(1);
+    for (let y = 0; y < 40; y++)
+      for (let x = 0; x < 40; x++) {
+        // Left half mid-grey, right half black.
+        dark[y * 40 + x] = x < 20 ? 0.5 : 0;
+      }
+    const r = runAlgorithm(
+      'crosshatch',
+      { field: dark, gw: 40, gh: 40, mmPerGrid: 1 },
+      params({ spacingMm: 2, angleDeg: 0, passes: 3, threshold: 1 }),
+    );
+    const inkLeft = r.polylines
+      .filter(([a, b]) => (a.x + b.x) / 2 < r.widthMm / 2)
+      .reduce((n, [a, b]) => n + Math.hypot(b.x - a.x, b.y - a.y), 0);
+    const inkRight = r.polylines
+      .filter(([a, b]) => (a.x + b.x) / 2 >= r.widthMm / 2)
+      .reduce((n, [a, b]) => n + Math.hypot(b.x - a.x, b.y - a.y), 0);
+    expect(inkRight).toBeGreaterThan(inkLeft);
+  });
+
+  it('clamps an absurd number of directions', () => {
+    expect(() => runAlgorithm('crosshatch', blob(20, 1), params({ passes: 500 }))).not.toThrow();
+  });
+});
+
+describe('stipple', () => {
+  it('places dots as short segments, never zero-length', () => {
+    // A zero-length polyline leaves the pen down in one spot without moving,
+    // which blots rather than dots.
+    const r = runAlgorithm('stipple', blob(40, 1), params({ spacingMm: 2, threshold: 0.9 }));
+    expect(r.polylines.length).toBeGreaterThan(5);
+    for (const [a, b] of r.polylines) {
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(0);
+    }
+  });
+
+  it('puts more dots in dark areas than light ones', () => {
+    const r = runAlgorithm('stipple', gradient(40), params({ spacingMm: 1.5, threshold: 1 }));
+    const mid = r.widthMm / 2;
+    const darkDots = r.polylines.filter(([a]) => a.x < mid).length;
+    const lightDots = r.polylines.filter(([a]) => a.x >= mid).length;
+    expect(darkDots).toBeGreaterThan(lightDots * 2);
+  });
+
+  it('spreads tone instead of banding it', () => {
+    // Error diffusion is the point: a plain per-cell threshold would leave the
+    // light half of a gradient completely empty and the dark half solid.
+    const r = runAlgorithm('stipple', gradient(60), params({ spacingMm: 1, threshold: 1 }));
+    const quarters = [0, 0, 0, 0];
+    for (const [a] of r.polylines) {
+      quarters[Math.min(3, Math.floor((a.x / r.widthMm) * 4))]++;
+    }
+    // Every band gets some dots, and they thin out from dark to light.
+    expect(quarters.every((q) => q > 0)).toBe(true);
+    expect(quarters[0]).toBeGreaterThan(quarters[3]);
+  });
+
+  it('draws nothing for a blank image', () => {
+    const blank: FieldSource = {
+      field: new Float32Array(400).fill(1),
+      gw: 20,
+      gh: 20,
+      mmPerGrid: 1,
+    };
+    expect(runAlgorithm('stipple', blank, params({ threshold: 0.5 })).polylines).toEqual([]);
+  });
+});
+
+describe('edges', () => {
+  it('finds the border of a shape, not its interior', () => {
+    const r = runAlgorithm('edges', blob(40, 1), params({ threshold: 0.5 }));
+    expect(r.polylines.length).toBeGreaterThan(0);
+    // The square is 20 cells across in a 40-cell field: the edge geometry must
+    // sit around it, not fill it.
+    const b = bounds(r.polylines);
+    expect(b.width).toBeGreaterThan(15);
+    expect(b.width).toBeLessThan(30);
+  });
+
+  it('finds nothing in a flat image', () => {
+    const flat: FieldSource = {
+      field: new Float32Array(400).fill(0.4),
+      gw: 20,
+      gh: 20,
+      mmPerGrid: 1,
+    };
+    expect(runAlgorithm('edges', flat, params()).polylines).toEqual([]);
+  });
+
+  it('is unaffected by overall brightness, unlike a plain threshold', () => {
+    // Normalising by the strongest edge is what makes the threshold mean the
+    // same thing on a flat photograph as on a high-contrast one.
+    const dim = new Float32Array(40 * 40).fill(0.55);
+    for (let y = 10; y < 30; y++) for (let x = 10; x < 30; x++) dim[y * 40 + x] = 0.45;
+    const r = runAlgorithm('edges', { field: dim, gw: 40, gh: 40, mmPerGrid: 1 }, params());
+    expect(r.polylines.length).toBeGreaterThan(0);
+  });
+});
