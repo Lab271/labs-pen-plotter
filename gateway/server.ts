@@ -18,6 +18,15 @@ import type {
 } from '../src/gateway/protocol';
 import { projectFileName, sanitizeProjectName } from '../src/plot/project';
 import {
+  canRestorePosition,
+  MOTORS_HOLDING,
+  reduceMotorPower,
+  shouldDropMotors,
+  type MotorPower,
+  type MotorPowerEvent,
+} from '../src/grbl/motorPower';
+import { DEFAULT_CALIBRATION } from '../src/grbl/settings';
+import {
   appSettingsFromLegacySession,
   normalizeAppSettings,
   type AppSettings,
@@ -89,6 +98,14 @@ interface SavedState {
   wpos: Vec3;
   wco: Vec3;
   savedAt: string;
+  /**
+   * Whether this position was trustworthy when it was written. Absent on files
+   * from before the motors could be powered down — those were only ever written
+   * while the steppers were holding the gantry, so absent reads as `true`.
+   * `false` means it was recorded on the wrong side of a power-down and must
+   * never be reinstated as the work origin.
+   */
+  trusted?: boolean;
 }
 let lastWpos: Vec3 | null = null;
 let lastWco: Vec3 = { x: 0, y: 0, z: 0 };
@@ -99,36 +116,77 @@ let posReady = false;
 
 let lastSavedKey = '';
 let writing = false; // serialize async writes so 5 Hz updates can't overlap/corrupt
+
+// Write atomically (temp file + rename) so an abrupt power-off can never leave a
+// half-written/empty file — a corrupt file reads back as null and loses the home.
+// The sync path additionally fsyncs, for the writes that happen as the process is
+// on its way out (SIGTERM, the plotter dropping, the motors being disabled).
+function writeStateSync(data: SavedState) {
+  const tmp = `${STATE_FILE}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    const fd = openSync(tmp, 'r'); // fsync the data to disk before the rename
+    fsyncSync(fd);
+    closeSync(fd);
+    renameSync(tmp, STATE_FILE);
+  } catch {
+    /* ignore */
+  }
+}
+
 function persistState(sync = false) {
   if (!lastWpos) return;
   // Skip when unchanged (idle machine → no churn) or while a write is in flight.
   const key = `${lastWpos.x.toFixed(2)},${lastWpos.y.toFixed(2)},${lastWpos.z.toFixed(2)}`;
   if (!sync && (key === lastSavedKey || writing)) return;
   lastSavedKey = key;
-  const data: SavedState = { wpos: lastWpos, wco: lastWco, savedAt: new Date().toISOString() };
-  const json = JSON.stringify(data, null, 2);
-  // Write atomically (temp file + rename) so an abrupt power-off can never leave a
-  // half-written/empty file — a corrupt file reads back as null and loses the home.
-  const tmp = `${STATE_FILE}.tmp`;
+  // Callers gate on `posReady`, so anything written here is an origin the
+  // operator established and the steppers have held ever since.
+  const data: SavedState = {
+    wpos: lastWpos,
+    wco: lastWco,
+    savedAt: new Date().toISOString(),
+    trusted: true,
+  };
   if (sync) {
-    try {
-      writeFileSync(tmp, json);
-      const fd = openSync(tmp, 'r'); // fsync the data to disk before the rename
-      fsyncSync(fd);
-      closeSync(fd);
-      renameSync(tmp, STATE_FILE);
-    } catch {
-      /* ignore */
-    }
+    writeStateSync(data);
     return;
   }
   writing = true;
-  void writeFile(tmp, json)
-    .then(() => rename(tmp, STATE_FILE))
+  void writeFile(`${STATE_FILE}.tmp`, JSON.stringify(data, null, 2))
+    .then(() => rename(`${STATE_FILE}.tmp`, STATE_FILE))
     .catch(() => undefined)
     .finally(() => {
       writing = false;
     });
+}
+
+/**
+ * Mark the position on disk as no longer an origin — called the instant the
+ * steppers are de-energized.
+ *
+ * Without this the daemon would restart hours later, read a position recorded
+ * when the gantry was already free, and hand it straight to `G10 L20` as the
+ * work origin. With soft limits disabled per-axis, the next plot then drives
+ * into the frame. The coordinates are kept (they say where it *thought* it was,
+ * which is worth having) — only the claim that they mean something is dropped.
+ *
+ * Written synchronously: the whole point is that it survives whatever happens
+ * next, including someone pulling the plug.
+ */
+function invalidateSavedPosition() {
+  const saved = readSavedState();
+  const wpos = lastWpos ?? saved?.wpos;
+  if (!wpos) return; // nothing was ever saved — nothing can be wrongly restored
+  writeStateSync({
+    wpos,
+    wco: lastWco,
+    savedAt: new Date().toISOString(),
+    trusted: false,
+  });
+  // The dedupe key would otherwise suppress the first write after a re-zero (the
+  // position has not changed yet), leaving `trusted: false` on disk.
+  lastSavedKey = '';
 }
 
 function readSavedState(): SavedState | null {
@@ -233,6 +291,20 @@ async function broadcastProjects(): Promise<void> {
 async function restoreSavedPosition() {
   const saved = readSavedState();
   if (!saved?.wpos) return;
+  // Recorded after the motors were powered down: the gantry was free from that
+  // moment on, so this is a coordinate, not an origin. Reinstating it is exactly
+  // the failure this feature exists to prevent — come up untrusted instead and
+  // let the operator re-zero. (An older file has no flag and is still trusted.)
+  if (!canRestorePosition(saved)) {
+    setMotors({ kind: 'staleRestore' });
+    restoredNote =
+      `Not restoring the saved position (${saved.wpos.x.toFixed(1)}, ${saved.wpos.y.toFixed(1)}, ` +
+      `saved ${saved.savedAt}): the motors were powered down after it was recorded, so the gantry ` +
+      'may have moved. Re-zero at the paper’s top-left corner before plotting.';
+    log(restoredNote);
+    broadcast({ type: 'event', event: 'log', payload: { dir: 'info', text: restoredNote } });
+    return;
+  }
   try {
     // Restore X/Y (paper alignment) but zero Z: restoring the pen's last Z would
     // make "pen up" (work Z0) a negative machine Z. Work Z0 = pen-up at boot.
@@ -245,6 +317,83 @@ async function restoreSavedPosition() {
   restoredNote = `Restored last position ${saved.wpos.x.toFixed(1)}, ${saved.wpos.y.toFixed(1)} (saved ${saved.savedAt}). Re-calibrate (Set Work Zero) if the gantry was moved.`;
   log(restoredNote);
   broadcast({ type: 'event', event: 'log', payload: { dir: 'info', text: restoredNote } });
+}
+
+// ---- motor power + position trust ----
+// The steppers are the only thing holding the gantry (no limit switches, no
+// homing), so de-energizing them is also how the work origin gets lost. Both
+// facts live here; the rules that move between them are pure and tested in
+// src/grbl/motorPower.ts.
+let motors: MotorPower = { ...MOTORS_HOLDING };
+/** Epoch ms of the last commanded motion — what the idle timer measures from. */
+let lastActivityAt = Date.now();
+/** Guard so a slow `$MD` can't have a second tick queue another one behind it. */
+let droppingMotors = false;
+
+/** Apply a motor/origin event and tell every client, since there is one machine. */
+function setMotors(event: MotorPowerEvent) {
+  const next = reduceMotorPower(motors, event);
+  if (
+    next.powered === motors.powered &&
+    next.posTrusted === motors.posTrusted &&
+    next.reason === motors.reason
+  ) {
+    return; // no change (e.g. motion on an already-energized machine) → no chatter
+  }
+  motors = next;
+  broadcast({ type: 'event', event: 'motors', payload: motors });
+}
+
+/** The configured idle period, falling back to the default when nothing is stored yet. */
+function motorIdleMinutes(): number {
+  return appSettings?.calibration.motorIdleMin ?? DEFAULT_CALIBRATION.motorIdleMin;
+}
+
+/**
+ * De-energize the steppers and record what that costs.
+ *
+ * Order matters: `$MD` goes out first and the state only changes once it has,
+ * because a disable that never reached the controller leaves the motors holding
+ * and the origin perfectly good. Then persistence stops *before* the file is
+ * invalidated, so the 5 Hz status handler cannot slip a `trusted: true` write in
+ * between.
+ */
+async function dropMotors(event: { kind: 'idleTimeout'; minutes: number } | { kind: 'manualOff' }) {
+  await ctrl.motorsOff();
+  posReady = false;
+  invalidateSavedPosition();
+  setMotors(event);
+  log(motors.reason ?? 'motors powered down');
+  broadcast({ type: 'event', event: 'log', payload: { dir: 'info', text: motors.reason ?? '' } });
+}
+
+/**
+ * Idle check, run on a coarse tick. The period is measured in minutes, so being
+ * up to one tick late costs nothing and keeps the Pi from waking 120× an hour to
+ * be punctual about something nobody is watching.
+ */
+const IDLE_TICK_MS = 30_000;
+async function checkIdleMotors() {
+  if (droppingMotors) return;
+  const minutes = motorIdleMinutes();
+  const due = shouldDropMotors({
+    now: Date.now(),
+    lastActivityAt,
+    idleMinutes: minutes,
+    connected,
+    busy: isPlotting(),
+    powered: motors.powered,
+  });
+  if (!due) return;
+  droppingMotors = true;
+  try {
+    await dropMotors({ kind: 'idleTimeout', minutes });
+  } catch (e) {
+    // Nothing is marked: the motors are still on, so the origin is still good.
+    log(`idle power-down failed: ${String((e as Error)?.message ?? e)}`);
+  } finally {
+    droppingMotors = false;
+  }
 }
 
 // ---- daemon state (for snapshots) ----
@@ -392,6 +541,10 @@ ctrl.on('disconnected', () => {
 });
 ctrl.on('status', (s) => {
   lastStatus = s;
+  // Anything actually moving is use, whoever asked for it. Without this the idle
+  // clock would run from the command that *started* a two-hour plot, and the
+  // motors would be due to drop the moment it finished.
+  if (s.state === 'Run' || s.state === 'Jog' || isPlotting()) lastActivityAt = Date.now();
   if (s.wco) lastWco = s.wco;
   lastWpos = { x: s.mpos.x - lastWco.x, y: s.mpos.y - lastWco.y, z: s.mpos.z - lastWco.z };
   // Persist on every changed status (~5 Hz) so a mid-plot power-off restores
@@ -479,6 +632,7 @@ function snapshot(ws: WebSocket): Snapshot {
     // Filled in by the caller: listing the directory is async, and a snapshot
     // has to be ready the moment a client attaches.
     projects: knownProjects,
+    motors,
   };
 }
 
@@ -494,12 +648,68 @@ function releaseControlOnClose(ws: WebSocket) {
   }
 }
 
+/**
+ * Commands that mean the operator is standing at the machine using it. Only
+ * these reset the idle clock: a browser that autosaves its session every couple
+ * of seconds would otherwise hold the steppers energized forever, which is the
+ * whole thing this change is trying to stop.
+ */
+const ACTIVITY_COMMANDS = new Set<ClientMessage['cmd']>([
+  'plot',
+  'resume',
+  'stop',
+  'jog',
+  'penUp',
+  'penDown',
+  'goToWorkZero',
+  'setWorkZero',
+  'continueProgram',
+  'unlock',
+]);
+
+/**
+ * The subset that actually drives the steppers, which is what brings them back
+ * after a `$MD` (FluidNC re-energizes on motion). `setWorkZero` and `unlock` are
+ * not here on purpose: they write an offset and clear an alarm. Reporting the
+ * gantry as held because of either would tell the operator it is safe to walk
+ * away from a machine that is still free to be pushed.
+ */
+const MOVES_THE_MACHINE = new Set<ClientMessage['cmd']>([
+  'plot',
+  'resume',
+  'jog',
+  'penUp',
+  'penDown',
+  'goToWorkZero',
+  'continueProgram',
+]);
+
+/**
+ * Commands whose meaning depends on the work origin. Refused while the position
+ * is untrusted — in the daemon, not in the browser, because there can be several
+ * browsers and only one gantry. Jog is deliberately absent: the operator needs it
+ * to reach the corner, and the motion is fine, it is the numbers that are fiction.
+ */
+const NEEDS_TRUSTED_POSITION = new Set<ClientMessage['cmd']>(['plot', 'goToWorkZero']);
+
 async function handleCommand(ws: WebSocket, msg: ClientMessage) {
   const id = msg.id;
   if (controller !== ws) {
     send(ws, { type: 'cmdError', id, message: 'Another operator is in control.' });
     return;
   }
+  if (!motors.posTrusted && NEEDS_TRUSTED_POSITION.has(msg.cmd)) {
+    send(ws, {
+      type: 'cmdError',
+      id,
+      message: `Refused: ${motors.reason} Move the head to the paper’s top-left corner and set home (Calibrate) first.`,
+    });
+    return;
+  }
+  if (ACTIVITY_COMMANDS.has(msg.cmd)) lastActivityAt = Date.now();
+  // Commanding a move re-energizes the steppers. It says nothing about the
+  // origin — only a human at the paper's corner can restore that.
+  if (MOVES_THE_MACHINE.has(msg.cmd)) setMotors({ kind: 'motion' });
   try {
     switch (msg.cmd) {
       case 'plot':
@@ -512,7 +722,11 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
         ctrl.resume();
         break;
       case 'stop':
-        await ctrl.stopAndReturnHome();
+        // Stop always stops. But `stopAndReturnHome` is two actions welded
+        // together, and while the origin is unknown the second one is a rapid to
+        // a coordinate nothing has measured — so run the abort on its own.
+        if (motors.posTrusted) await ctrl.stopAndReturnHome();
+        else await ctrl.stop();
         break;
       case 'jog':
         await ctrl.jog(msg.dx, msg.dy, msg.dz, msg.feed);
@@ -532,13 +746,25 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage) {
       case 'setWorkZero':
         await ctrl.setWorkZero();
         posReady = true;
+        // `G10 L20 P1 X0 Y0 Z0` *defines* this spot as work zero, so the work
+        // position is 0,0,0 by construction. Say so rather than persisting the
+        // pre-calibration reading that `lastWpos` still holds until the next
+        // status arrives (~200 ms) — that value would restore a wrong origin if
+        // the daemon died in between, which is the whole hazard here.
+        lastWpos = { x: 0, y: 0, z: 0 };
         persistState();
+        // The one thing that restores trust: a person put the head on the corner
+        // and said so. Nothing the machine can do on its own counts.
+        setMotors({ kind: 'setWorkZero' });
         break;
       case 'goToWorkZero':
         await ctrl.goToWorkZero();
         break;
       case 'motorsOff':
-        await ctrl.motorsOff();
+        // Deliberately identical to the idle timeout: the operator switching the
+        // motors off frees the gantry exactly as the timer does, and the origin
+        // is exactly as gone.
+        await dropMotors({ kind: 'manualOff' });
         break;
       case 'unlock':
         await ctrl.unlock();
@@ -749,4 +975,7 @@ httpServer.listen(PORT, HOST, () => {
   // Best-effort latest-release lookup: once on boot, then every 6 h. Non-blocking.
   void refreshLatestVersion();
   setInterval(() => void refreshLatestVersion(), 6 * 60 * 60 * 1000);
+  // Idle motor power-down. Started here rather than at module load so it never
+  // ticks in a process that failed to come up.
+  setInterval(() => void checkIdleMotors(), IDLE_TICK_MS);
 });

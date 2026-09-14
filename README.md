@@ -93,6 +93,19 @@ unattended **Raspberry Pi** setup needs.
   a plot that hangs, and a diagnostic log panel keeps the last events.
 - **Manual control.** Jog, pen up/down, set work zero, go to work zero, motors off, and a
   live feed-rate override.
+- **Idle motors power down, and the app admits what that costs.** After an hour with
+  nothing to do (configurable; `0` never) the daemon de-energizes the steppers — no
+  holding current, no heat, no coil whine on a machine that is idle most of the day. It
+  never fires mid-job, including while a plot is *held at a pen change*, which looks idle
+  and is not. Because there are no limit switches, freeing the gantry also loses the work
+  origin, so the daemon marks the position untrusted the moment it happens, stops saving
+  it, invalidates what is on disk so a restart cannot reinstate it, and refuses Plot and
+  Go to home — for every connected device, not just the one that was watching. A
+  **re-zero wizard** then walks you back: it says the motors are off and the gantry will
+  not resist, you push or jog the head to the paper's top-left corner, and Set home puts
+  everything back. Jogging stays available throughout; its coordinates simply mean nothing
+  until you have re-zeroed. **Motors off** does exactly the same thing, because it has
+  exactly the same consequence.
 - **Settings page.** The gear in the header opens everything that is configured once: work
   area, pen-down/up Z, dwell, the draw/travel/jog feeds, image-import defaults, the
   connection and version info, and a read-only view of the controller's raw `$$` settings.
@@ -135,6 +148,11 @@ The G-code generator bakes in this specific machine's setup:
 - After a power cycle the daemon restores the last saved position so you needn't
   re-calibrate, but without homing this is approximate (~1 cm). Stop the plot before
   powering off for the closest restore, and re-run **Set Work Zero** if it drifts.
+- **A position saved after the motors were powered down is never restored.** The state
+  file records whether the position was trustworthy when written; one written on the wrong
+  side of a `$MD` is read back, reported, and *not* fed to `G10 L20`. That is deliberate:
+  reinstating it would make a coordinate nobody measured into the work origin, and with
+  soft limits disabled per-axis nothing downstream would stop the plot.
 
 ## Architecture
 

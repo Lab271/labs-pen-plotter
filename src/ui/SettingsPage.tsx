@@ -97,6 +97,22 @@ export function SettingsPage(p: SettingsPageProps) {
             />
           </Group>
 
+          <Group title="Motors">
+            <p className="mb-1.5 text-xs text-slate-500">
+              The steppers hold the gantry in place; left on, they draw current and get warm for
+              nothing. After this many minutes with no movement they are switched off.
+              <b> This machine has no limit switches</b>, so that also loses the work origin — you
+              will be walked through setting it again before the next plot. Set{' '}
+              <b>0 to never switch them off</b>, e.g. while you are mid-setup and want home kept.
+            </p>
+            <NumberField
+              label="Power down after (minutes, 0 = never)"
+              value={p.cal.motorIdleMin}
+              step={5}
+              onChange={p.onCalField('motorIdleMin')}
+            />
+          </Group>
+
           <Group title="Pen">
             <p className="mb-1.5 text-xs text-slate-500">
               This machine has an <b>inverted Z</b>: Z+ moves the pen <b>down</b>. Pen-down Z is

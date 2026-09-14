@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Idle motor power-down, with a re-zero wizard.** The steppers were energized around the
+  clock; they are now de-energized (`$MD`) after a configurable idle period, default 1 hour,
+  `0` to never. The timer is driven off the existing `isPlotting()` predicate, so it cannot
+  fire while a plot is streaming, queued, paused, in `Run`/`Hold`, or **held at a pen
+  change** — a case that is deliberately idle with an empty queue and very much mid-job.
+- **Position trust is explicit state, shared by every client.** With no limit switches and
+  no encoder feedback, de-energizing the motors frees the gantry and the reported position
+  stops being a measurement. A power-down — automatic *or* the manual **Motors off** button
+  — now marks the position untrusted, stops persisting it, and rewrites the saved state
+  file with `trusted: false` so a daemon restarted hours later refuses to reinstate it as
+  the work origin. The state is in the snapshot and pushed as an event, so a device that
+  attaches long afterwards learns that home is gone. A state file written by an older
+  daemon carries no flag and is still restored, as before.
+- **The gateway refuses Plot and Go to home while the origin is unknown**, naming the
+  reason, next to the command handlers rather than in the browser. Jog stays available —
+  the operator needs it to reach the corner. Stop still stops; while untrusted it runs the
+  abort without the rapid to an origin nobody believes.
+- **Re-zero wizard** (`src/ui/RezeroWizard.tsx`), opening by itself when the origin is
+  lost and from the Home/calibration panel: what happened, a warning that the gantry will
+  not fight back, jog or push to the paper's top-left corner, then Set home. A banner keeps
+  the state visible until it is cleared.
+
 ## [1.3.0] - 2026-09-12
 
 ### Added

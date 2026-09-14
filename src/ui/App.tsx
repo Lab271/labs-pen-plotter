@@ -6,6 +6,7 @@ import { loadAppSettings, saveAppSettings } from './settingsStore';
 import { loadSession, saveSession, type Session, type PersistedArt } from './sessionStore';
 import { flattenSvg, ABORTED } from '../plot/svg';
 import { RegistrationWizard } from './RegistrationWizard';
+import { RezeroWizard } from './RezeroWizard';
 import { StepPicker } from './StepPicker';
 import { btn, btnPrimary, field } from './styles';
 import { imageToField, traceField, type FieldSource } from '../plot/raster';
@@ -61,6 +62,7 @@ import { SettingsPage } from './SettingsPage';
 import { Logo } from './Logo';
 import type { UpdateStatus } from '../gateway/protocol';
 import type { AppSettings } from '../gateway/appSettings';
+import { MOTORS_HOLDING, type MotorPower } from '../grbl/motorPower';
 
 type Orientation = 'landscape' | 'portrait';
 
@@ -248,6 +250,10 @@ export function App() {
   // The pen the machine is waiting for, or null. Comes from the daemon (snapshot
   // or event), so any client — including one that just attached — can answer it.
   const [penChange, setPenChange] = useState<{ index: number; label: string } | null>(null);
+  // Motor power + whether the work origin still means anything. Owned by the
+  // daemon (one machine, one answer) — this is only the local mirror of it.
+  const [motors, setMotors] = useState<MotorPower>(MOTORS_HOLDING);
+  const [showRezero, setShowRezero] = useState(false);
   // Don't push to the daemon until we've synced with its stored session on connect
   // (avoids a stale local push overwriting a newer session from another device).
   const sessionLoadedRef = useRef(false);
@@ -370,6 +376,19 @@ export function App() {
         }
       }),
       ctrl.on('projects', (list) => setProjects(list)),
+      ctrl.on('motors', (m) => {
+        setMotors(m);
+        // Losing the origin is not something to find out about by pressing Plot
+        // and being refused, so the wizard comes to the operator. It is closable
+        // — the banner and the gateway's refusal are what actually hold the line.
+        if (!m.posTrusted) setShowRezero(true);
+        pushLog(
+          'SYS',
+          m.posTrusted
+            ? `position trusted again (motors ${m.powered ? 'on' : 'off'})`
+            : (m.reason ?? 'position untrusted'),
+        );
+      }),
       ctrl.on('projectLoaded', (e) => {
         openProject(e.project, e.name);
       }),
@@ -1336,6 +1355,12 @@ export function App() {
   function onPlot() {
     const c = ctrl();
     if (!c || items.length === 0) return;
+    // The gateway refuses this too, and that refusal is the one that counts.
+    // Here it is about telling the operator what to do instead of failing.
+    if (!motors.posTrusted) {
+      setShowRezero(true);
+      return;
+    }
     const placed = displayItems.flatMap((i) => placePolylines(i.polylines, i.placement));
     const b = bounds(placed);
     if (b.minX < -0.01 || b.minY < -0.01 || b.maxX > bedW + 0.01 || b.maxY > bedH + 0.01) {
@@ -1494,6 +1519,30 @@ export function App() {
           }}
         />
       )}
+      {showRezero && (
+        <RezeroWizard
+          reason={motors.reason}
+          motorsPowered={motors.powered}
+          posTrusted={motors.posTrusted}
+          connected={connected}
+          penPos={penPos}
+          jogStep={jogStep}
+          setJogStep={setJogStep}
+          onJog={jogBy}
+          onPenUp={() =>
+            void ctrl()
+              ?.penUp()
+              .catch(() => undefined)
+          }
+          onPenDown={() =>
+            void ctrl()
+              ?.penDown()
+              .catch(() => undefined)
+          }
+          onSetHome={() => void run(() => ctrl()!.setWorkZero())}
+          onClose={() => setShowRezero(false)}
+        />
+      )}
       {showSettings && (
         <SettingsPage
           cal={cal}
@@ -1630,13 +1679,27 @@ export function App() {
           </button>
           <button
             className={btnPrimary}
-            disabled={!connected || items.length === 0}
+            disabled={!connected || items.length === 0 || !motors.posTrusted}
+            title={motors.posTrusted ? undefined : (motors.reason ?? undefined)}
             onClick={onPlot}
           >
             {cutting ? '✂ Cut' : '▶ Plot'}
           </button>
         </div>
       </header>
+
+      {/* Lost-origin banner. Stays up for as long as the position is untrusted,
+          on every device — the wizard can be dismissed, this cannot, because the
+          machine genuinely does not know where the paper is. */}
+      {!motors.posTrusted && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-red-300 bg-red-50 px-4 py-1.5 text-xs text-red-900">
+          <span className="font-semibold">Home is lost.</span>
+          <span>{motors.reason}</span>
+          <button className={`${btnPrimary} ml-auto`} onClick={() => setShowRezero(true)}>
+            Re-zero…
+          </button>
+        </div>
+      )}
 
       {/* Self-update banner: shown when a newer release exists or an update is in
           flight. "Update now" is disabled while plotting (the daemon also refuses). */}
@@ -1907,6 +1970,16 @@ export function App() {
                 Move the pen to the paper's top-left corner — jog with the arrows, or use “Motors
                 off” and push it by hand — then Calibrate.
               </p>
+              {!motors.posTrusted && (
+                <p className="mb-1.5 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
+                  {motors.reason}
+                </p>
+              )}
+              {motors.posTrusted && !motors.powered && (
+                <p className="mb-1.5 text-xs text-amber-700">
+                  The motors are off — the gantry moves freely until the next command.
+                </p>
+              )}
               <button
                 className={`${btnPrimary} w-full`}
                 disabled={!connected}
@@ -1917,7 +1990,8 @@ export function App() {
               <div className="mt-1 grid grid-cols-3 gap-1">
                 <button
                   className={btn}
-                  disabled={!connected}
+                  disabled={!connected || !motors.posTrusted}
+                  title={motors.posTrusted ? undefined : (motors.reason ?? undefined)}
                   onClick={() => run(() => ctrl()!.goToWorkZero())}
                 >
                   Go to home
@@ -1925,6 +1999,7 @@ export function App() {
                 <button
                   className={btn}
                   disabled={!connected}
+                  title="Free the gantry so it can be pushed by hand. This loses home — you will be asked to re-zero."
                   onClick={() => run(() => ctrl()!.motorsOff())}
                 >
                   Motors off
@@ -1937,6 +2012,12 @@ export function App() {
                   Unlock
                 </button>
               </div>
+              <button
+                className={`${motors.posTrusted ? btn : btnPrimary} mt-1 w-full`}
+                onClick={() => setShowRezero(true)}
+              >
+                Re-zero…
+              </button>
             </Section>
 
             <Section title="Projects" collapsible>
