@@ -4,6 +4,7 @@
  */
 import type { GrblSettings, StatusReport } from '../grbl/types';
 import type { Calibration } from '../grbl/settings';
+import type { MotorPower } from '../grbl/motorPower';
 import type { AppSettings } from './appSettings';
 
 export const DEFAULT_GATEWAY_PORT = 8717;
@@ -100,6 +101,14 @@ export interface Snapshot {
   penChange: { index: number; label: string } | null;
   /** Projects stored on the daemon, newest first. */
   projects: ProjectSummary[];
+  /**
+   * Whether the steppers are energized and whether the work origin can still be
+   * believed. In the snapshot because there is one machine and one answer: a
+   * client that attaches an hour after the motors dropped has to learn that the
+   * origin is gone, or it would happily ask for a plot from a position nothing
+   * has measured. See `src/grbl/motorPower.ts`.
+   */
+  motors: MotorPower;
 }
 
 /** What the client needs to list a stored project without loading it. */
@@ -140,6 +149,12 @@ export interface ForwardedEvents {
    * client except the one that saved them, so all clients show one setup.
    */
   appSettings: AppSettings;
+  /**
+   * Daemon-originated: the motors were powered down (or the origin was set
+   * again). Pushed to every client, because the machine's origin is not a
+   * per-tab opinion.
+   */
+  motors: MotorPower;
 }
 
 export type ServerMessage =

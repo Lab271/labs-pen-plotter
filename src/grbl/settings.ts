@@ -28,6 +28,14 @@ export interface Calibration {
   /** Machine limits, for reference and UI clamping. */
   maxFeedXY: number;
   maxFeedZ: number;
+  /**
+   * Minutes of no commanded motion after which the daemon de-energizes the
+   * steppers (`$MD`). `0` means never — which is also the "keep the motors on"
+   * override, for an operator who is stepping away mid-setup and wants the
+   * origin held. Powering down frees the gantry, and with no homing that loses
+   * the work origin, so this always costs a re-zero. See src/grbl/motorPower.ts.
+   */
+  motorIdleMin: number;
 }
 
 export const DEFAULT_CALIBRATION: Calibration = {
@@ -44,4 +52,5 @@ export const DEFAULT_CALIBRATION: Calibration = {
   pngLevels: 1,
   maxFeedXY: 11000,
   maxFeedZ: 5000,
+  motorIdleMin: 60,
 };

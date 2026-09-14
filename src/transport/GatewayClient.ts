@@ -9,6 +9,7 @@ import type {
   UpdateStatus,
 } from '../gateway/protocol';
 import { normalizeAppSettings, type AppSettings } from '../gateway/appSettings';
+import { MOTORS_HOLDING, type MotorPower } from '../grbl/motorPower';
 
 type ClientEvents = {
   connected: { version: string };
@@ -44,6 +45,12 @@ type ClientEvents = {
   projects: ProjectSummary[];
   /** A project this client asked for. */
   projectLoaded: { name: string; project: unknown };
+  /**
+   * Motor power and whether the work origin can still be believed. Emitted from
+   * the snapshot too, so a tab that attaches long after the motors dropped finds
+   * out that home is gone rather than offering to plot from it.
+   */
+  motors: MotorPower;
 };
 
 /**
@@ -94,6 +101,7 @@ export class GatewayClient {
   private _streamDebug: StreamDebug = { inflight: 0, bytes: 0, queued: 0 };
   private _inControl = false;
   private _calibration: Calibration | null = null;
+  private _motors: MotorPower = { ...MOTORS_HOLDING };
   private nextId = 1;
   private pending = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
 
@@ -126,6 +134,10 @@ export class GatewayClient {
   }
   get inControl(): boolean {
     return this._inControl;
+  }
+  /** Motor power + position trust, as the daemon last reported it. */
+  get motors(): MotorPower {
+    return this._motors;
   }
 
   /** Calibration is pushed to the daemon (the engine there reads pen Z / feeds / dwell). */
@@ -211,6 +223,10 @@ export class GatewayClient {
         // Normalised here too: a pre-1.3 daemon sends no field at all.
         this.events.emit('appSettings', s.appSettings ? normalizeAppSettings(s.appSettings) : null);
         this.events.emit('penChange', s.penChange ?? null);
+        // A daemon older than this feature sends no `motors` — it cannot power
+        // the steppers down either, so "holding, origin known" is the truth there.
+        this._motors = s.motors ?? MOTORS_HOLDING;
+        this.events.emit('motors', this._motors);
         this.events.emit('projects', s.projects ?? []);
         // Continue a plot that was paused by a previous Disconnect-as-pause.
         if (s.paused) this.resume();
@@ -245,6 +261,7 @@ export class GatewayClient {
           this._appVersion = msg.payload.appVersion;
           this._latestVersion = msg.payload.latestVersion;
         } else if (msg.event === 'updateStatus') this._updateStatus = msg.payload;
+        else if (msg.event === 'motors') this._motors = msg.payload;
         this.events.emit(msg.event, msg.payload as never);
         break;
       }
