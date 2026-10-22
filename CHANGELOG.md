@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-22
+
+### Security
+
+- **Bundled Node runtime 22.20.0 to 22.23.4** (#103). Picks up the Node.js security release of
+  2026-10-21: CVE-2026-111497 (High, Brotli decoder out-of-bounds write permitting remote code
+  execution), CVE-2026-105482 (`dns.resolve` NUL truncation), CVE-2026-106069 (TLS hostname
+  bypass) and the medium and low fixes alongside them. Same 22.x line, so the `serialport`
+  native binding is unchanged. Tracked in LABS-1035.
+
 ## [1.4.0] - 2026-09-14
 
 ### Added
