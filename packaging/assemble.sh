@@ -9,7 +9,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."  # repo root
 
-NODE_VERSION="${NODE_VERSION:-22.20.0}"   # current Node LTS line — override if newer
+NODE_VERSION="${NODE_VERSION:-22.23.4}"   # current Node LTS line — override if newer
 NODE_ARCH="${NODE_ARCH:-arm64}"
 STAGE="build/stage"
 OPT="$STAGE/opt/penplotter271"
