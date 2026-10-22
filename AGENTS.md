@@ -58,7 +58,7 @@ that is a real choice.
 
 ## Development commands
 
-Use `mise`. It pins the toolchain — including Node `22.20.0`, the same version
+Use `mise`. It pins the toolchain — including Node `22.23.4`, the same version
 `packaging/assemble.sh` bundles into the `.deb` — and CI runs the same tasks, so
 local and CI cannot drift.
 
