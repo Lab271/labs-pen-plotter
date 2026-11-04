@@ -45,9 +45,15 @@ import { copyName, pastePlacement, reorderMany } from '../plot/scene';
 import { prepareForCut } from '../plot/cut';
 import {
   DEFAULT_MAGNET_RADIUS_MM,
+  magnetCentreFromCarriage,
   magnetsHitBy,
+  normalizeMagnets,
+  normalizeSuggestionFingerprint,
   recommendMagnets,
+  suggestionFingerprint,
+  suggestionStaleness,
   type Magnet,
+  type SuggestionFingerprint,
 } from '../plot/magnet';
 import type { Artwork, CalibrationPoint, Placement, Point, Polyline } from '../plot/types';
 import {
@@ -293,8 +299,15 @@ export function App() {
   // Where the hold-down magnets are. The machine has no vacuum bed, and a
   // magnet the carriage strikes at travel feed drags the sheet and takes the
   // work origin with it — so the app has to know about them.
-  const [magnets, setMagnets] = useState<Magnet[]>(restored?.magnets ?? []);
+  // Session data is hand-editable and crosses devices, so it is normalized on
+  // the way in: a zero keep-out radius would silently switch the magnet off.
+  const [magnets, setMagnets] = useState<Magnet[]>(() => normalizeMagnets(restored?.magnets));
   const magnetIdRef = useRef(0);
+  // What the sheet looked like at the last Suggest — only so the Magnets
+  // section can say when that suggestion has gone stale (see `suggestionStaleness`).
+  const [magnetSuggestion, setMagnetSuggestion] = useState<SuggestionFingerprint | null>(() =>
+    normalizeSuggestionFingerprint(restored?.magnetSuggestion),
+  );
 
   useEffect(() => {
     const ctrl = new GatewayClient();
@@ -435,7 +448,8 @@ export function App() {
           if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
           if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
           if (s.mode) setMode(s.mode);
-          if (s.magnets) setMagnets(s.magnets);
+          if (s.magnets) setMagnets(normalizeMagnets(s.magnets));
+          setMagnetSuggestion(normalizeSuggestionFingerprint(s.magnetSuggestion));
           // Pre-1.3 sessions carried the shared calibration. Still adopted, for a
           // client talking to an older daemon that has no app-settings record —
           // the `appSettings` snapshot field (emitted right after this) wins when
@@ -495,6 +509,7 @@ export function App() {
     selectedPenId,
     mode,
     magnets,
+    magnetSuggestion,
   ]);
 
   // (Device reconnection is now owned by the gateway daemon; the browser client
@@ -588,6 +603,15 @@ export function App() {
       ? { x: status.mpos.x - wco.x, y: status.mpos.y - wco.y }
       : { x: status.mpos.x, y: status.mpos.y }
     : null;
+  // Where a magnet set from the carriage would go, or why it can't be set yet.
+  // One answer for the buttons' disabled state, their reason text and the click.
+  const carriageMagnet = magnetCentreFromCarriage({
+    position: connected ? penPos : null,
+    machineState: connected ? (status?.state ?? null) : null,
+    posTrusted: motors.posTrusted,
+    untrustedReason: motors.reason,
+    plotting,
+  });
 
   async function run(fn: () => Promise<void>) {
     try {
@@ -973,6 +997,18 @@ export function App() {
     [hitMagnets, displayItems, items],
   );
 
+  // Whether the last suggestion still fits the sheet. A comparison only: the
+  // markers are where the operator put real magnets, and moving them because
+  // the artwork moved would make them lie — so the app says so and stops there.
+  const suggestionStale = useMemo(
+    () =>
+      suggestionStaleness(
+        magnetSuggestion,
+        suggestionFingerprint(paper.widthMm, paper.heightMm, placedPolylines),
+      ),
+    [magnetSuggestion, paper.widthMm, paper.heightMm, placedPolylines],
+  );
+
   // The program that Plot sends — built here so the time estimate is costed on
   // exactly the G-code that will run, pen changes and all.
   //
@@ -1180,7 +1216,24 @@ export function App() {
     // Replace rather than append: these are suggestions for the sheet as it is
     // now, and mixing them with the previous set would be neither.
     setMagnets(suggested.map((m, i) => ({ ...m, id: `mag-suggest-${i + 1}` })));
+    setMagnetSuggestion(suggestionFingerprint(paper.widthMm, paper.heightMm, placedPolylines));
     setAlert('');
+  }
+
+  /**
+   * Put a magnet where the pen is: jog over the real magnet, press Set. With
+   * an id, that magnet moves there and keeps its radius; without one, a new
+   * magnet is added. Refused — with the reason shown — whenever the carriage
+   * position is not a measurement (see `magnetCentreFromCarriage`).
+   */
+  function setMagnetFromCarriage(id?: string) {
+    if (!carriageMagnet.ok) {
+      setAlert(carriageMagnet.reason);
+      return;
+    }
+    const { x, y } = carriageMagnet;
+    if (id) setMagnets((list) => list.map((m) => (m.id === id ? { ...m, x, y } : m)));
+    else addMagnet({ x, y });
   }
 
   function moveMagnet(id: string, x: number, y: number) {
@@ -1204,6 +1257,7 @@ export function App() {
       selectedPenId,
       mode,
       magnets,
+      magnetSuggestion,
     };
   }
 
@@ -1244,7 +1298,8 @@ export function App() {
     if (s.paperStyleId) setPaperStyleId(s.paperStyleId);
     if (s.selectedPenId) setSelectedPenId(s.selectedPenId);
     if (s.mode) setMode(s.mode);
-    setMagnets(s.magnets ?? []);
+    setMagnets(normalizeMagnets(s.magnets));
+    setMagnetSuggestion(normalizeSuggestionFingerprint(s.magnetSuggestion));
     setProjectName(project.name || fallbackName);
     setAlert(`Opened ${project.name || fallbackName}.`);
   }
@@ -2109,7 +2164,32 @@ export function App() {
                 <button className={btn} onClick={() => addMagnet()}>
                   Add one
                 </button>
+                <button
+                  className={`${btn} col-span-2`}
+                  disabled={!carriageMagnet.ok}
+                  title={carriageMagnet.ok ? undefined : carriageMagnet.reason}
+                  onClick={() => setMagnetFromCarriage()}
+                >
+                  Add at carriage
+                </button>
               </div>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Jog the pen over a magnet's centre, then Add at carriage — or Set on a magnet below
+                to move it there. The position is measured, not drawn.
+              </p>
+              {!carriageMagnet.ok && (
+                // Said in words, not only in a tooltip: the kiosk is a touch screen.
+                <p className="mt-1 text-xs text-amber-700">
+                  Set from carriage is off: {carriageMagnet.reason}
+                </p>
+              )}
+              {magnets.length > 0 && suggestionStale && (
+                <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                  {suggestionStale === 'paper' ? 'The paper' : 'The artwork'} has changed since the
+                  last Suggest, so those positions may no longer fit. The markers stay where the
+                  magnets are — press Suggest for new positions, then move the magnets to match.
+                </p>
+              )}
               {magnets.length > 0 && (
                 <>
                   <ul className="mt-2 space-y-1">
@@ -2142,6 +2222,19 @@ export function App() {
                               )
                             }
                           />
+                          <button
+                            className={btn}
+                            disabled={!carriageMagnet.ok}
+                            title={
+                              carriageMagnet.ok
+                                ? 'Set from carriage: move this magnet to where the pen is'
+                                : carriageMagnet.reason
+                            }
+                            aria-label="Set from carriage"
+                            onClick={() => setMagnetFromCarriage(m.id)}
+                          >
+                            Set
+                          </button>
                           <button
                             className="px-1 text-slate-400 hover:text-red-600"
                             title="Remove"

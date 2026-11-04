@@ -23,6 +23,45 @@ with the session.
 - **THEN** the zone drawn on the canvas changes with it, because the radius is the clearance the
   tool must keep, not the magnet's own size
 
+### Requirement: A magnet's position can be measured from the carriage
+
+The app SHALL let the operator set a magnet's centre from the machine's current work position —
+both for a magnet already in the list and as a new magnet — so the recorded position is where the
+real magnet is, not where it was drawn. The work position SHALL be taken as paper millimetres as
+it is, with no Y flip. The action SHALL be refused, and the reason shown in words, whenever that
+position is not a measurement.
+
+#### Scenario: Jog over a magnet and set it
+
+- **WHEN** the operator jogs the pen over a magnet's centre and presses Set on it (or Add at
+  carriage)
+- **THEN** that magnet's centre becomes the carriage's work position, keeping its radius (a new one
+  gets the default radius), and it is persisted like any other edit
+
+#### Scenario: After the motors were powered down
+
+- **WHEN** the motors have been switched off or powered down idle, and the origin has not been
+  re-zeroed since
+- **THEN** Set from carriage is disabled and the section says why — jog still moves the head, but
+  its position is not a measurement, and a magnet recorded from it would be a keep-out zone the
+  router trusts in the wrong place
+
+#### Scenario: Nothing to measure from
+
+- **WHEN** there is no connection to the plotter, a plot is running, the carriage is still moving,
+  or the controller is in alarm
+- **THEN** Set from carriage is disabled, with the reason shown
+
+### Requirement: Stored magnets are checked on the way in
+
+Magnets read from a stored session or a project file SHALL be normalized before use, so a
+malformed entry cannot switch a keep-out zone off.
+
+#### Scenario: A hand-edited project with a zero radius
+
+- **WHEN** a project's magnet has a missing, zero or negative radius
+- **THEN** it is loaded with the default keep-out radius instead
+
 ### Requirement: Magnets are visible as zones
 
 The canvas SHALL draw each magnet as its keep-out circle, to scale, distinctly from the artwork.
@@ -52,6 +91,35 @@ paper, and SHALL NOT overlap the drawing.
 
 - **WHEN** the drawing reaches every edge, or the sheet is smaller than a magnet plus its clearance
 - **THEN** no position is suggested and the operator is told why
+
+### Requirement: The app says when its suggestion is stale
+
+Suggest SHALL stay a manual action: a change to the drawing or the paper SHALL NOT move any magnet
+marker, because the markers record where the real magnets are. Instead, when the paper size or the
+drawing's extent has changed since the last Suggest, the Magnets section SHALL say so. The
+comparison SHALL survive a reload and be shared with every device, as part of the session.
+
+#### Scenario: Artwork moved after a suggestion
+
+- **WHEN** the operator presses Suggest and then moves the artwork
+- **THEN** the markers stay where they are, and the Magnets section says the artwork has changed
+  since the last Suggest
+
+#### Scenario: Paper changed after a suggestion
+
+- **WHEN** the paper size or orientation changes after a Suggest
+- **THEN** the Magnets section says the paper has changed since the last Suggest
+
+#### Scenario: Back to how it was
+
+- **WHEN** the artwork and paper return to what they were at the last Suggest, or Suggest is
+  pressed again
+- **THEN** the hint goes away
+
+#### Scenario: Never suggested
+
+- **WHEN** every magnet was placed by hand and Suggest has not been used
+- **THEN** no stale hint is shown
 
 ### Requirement: The app refuses to draw through a magnet
 
