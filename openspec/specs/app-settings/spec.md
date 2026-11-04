@@ -102,6 +102,12 @@ record, and SHALL fall back to a built-in set when what is stored holds no usabl
 - **WHEN** the operator defines a pen on one device
 - **THEN** every other client of that plotter offers the same pen
 
+#### Scenario: The library keeps its order
+
+- **WHEN** a pen library in a non-default order is saved and read back
+- **THEN** the pens come back in exactly that order — normalisation drops unusable or duplicated
+  entries but never sorts, because the library order is the plot order
+
 #### Scenario: An unusable stored library
 
 - **WHEN** the stored pen library is missing, is not a list, or contains no usable entry

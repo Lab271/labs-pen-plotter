@@ -1929,6 +1929,14 @@ export function App() {
                   ))}
                 </select>
               </label>
+              {/* The plot order is the pen library's order (penGroups), which is
+                  set in Settings → Pens — so say it here, where the job is, rather
+                  than leave the operator to find out at the first pen change. */}
+              {!cutting && penGroups.length > 1 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Plots in this order: {penGroups.map((g) => g.label).join(' → ')}
+                </p>
+              )}
               {selectedItem && (
                 <p className="mt-2 text-xs text-slate-500">
                   {selectedStrokes} strokes · {selectedItem.widthMm.toFixed(0)}×
