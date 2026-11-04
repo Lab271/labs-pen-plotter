@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MAGNET_RADIUS_MM,
   distanceToSegment,
+  magnetCentreFromCarriage,
   magnetsHitBy,
   normalizeMagnets,
+  normalizeSuggestionFingerprint,
   polylineHitsMagnet,
   recommendMagnets,
+  suggestionFingerprint,
+  suggestionStaleness,
+  type CarriageReading,
   type Magnet,
 } from '../magnet';
 import type { Polyline } from '../types';
@@ -150,5 +155,167 @@ describe('normalizeMagnets', () => {
 
   it('skips entries that are not objects', () => {
     expect(normalizeMagnets([null, 3, { x: 1, y: 1, radiusMm: 5 }])).toHaveLength(1);
+  });
+});
+
+describe('suggestionStaleness', () => {
+  const art: Polyline[] = [
+    [
+      { x: 100, y: 100 },
+      { x: 300, y: 200 },
+    ],
+  ];
+  const shifted: Polyline[] = art.map((p) => p.map((pt) => ({ x: pt.x + 20, y: pt.y })));
+  const at = (polylines: readonly Polyline[], w = 600, h = 400) =>
+    suggestionFingerprint(w, h, polylines);
+
+  it('is not stale when nothing was ever suggested', () => {
+    // No suggestion, nothing to go out of date — a hint here would be noise.
+    expect(suggestionStaleness(null, at(art))).toBeNull();
+  });
+
+  it('is not stale when the sheet is as it was', () => {
+    expect(suggestionStaleness(at(art), at(art))).toBeNull();
+  });
+
+  it('reports moved artwork', () => {
+    expect(suggestionStaleness(at(art), at(shifted))).toBe('artwork');
+  });
+
+  it('reports artwork added to, or cleared from, an empty sheet', () => {
+    expect(suggestionStaleness(at([]), at(art))).toBe('artwork');
+    expect(suggestionStaleness(at(art), at([]))).toBe('artwork');
+  });
+
+  it('reports a new paper size ahead of moved artwork', () => {
+    // A different sheet invalidates every edge position at once, which is
+    // the more useful thing to say.
+    expect(suggestionStaleness(at(art), at(shifted, 841, 594))).toBe('paper');
+    expect(suggestionStaleness(at(art), at(art, 400, 600))).toBe('paper');
+  });
+
+  it('ignores a change inside the drawing that leaves its extent alone', () => {
+    // Suggestions only read the drawing's box, so a stroke added in the
+    // middle cannot change what Suggest would offer.
+    const inner: Polyline[] = [
+      ...art,
+      [
+        { x: 150, y: 150 },
+        { x: 200, y: 160 },
+      ],
+    ];
+    expect(suggestionStaleness(at(art), at(inner))).toBeNull();
+  });
+
+  it('ignores sub-tenth-millimetre wobble', () => {
+    const wobble: Polyline[] = art.map((p) => p.map((pt) => ({ x: pt.x + 0.01, y: pt.y - 0.01 })));
+    expect(suggestionStaleness(at(art), at(wobble))).toBeNull();
+  });
+
+  it('treats empty polylines as no drawing', () => {
+    expect(suggestionFingerprint(600, 400, [[]]).drawn).toBeNull();
+  });
+});
+
+describe('normalizeSuggestionFingerprint', () => {
+  it('round-trips a fingerprint through JSON', () => {
+    const fp = suggestionFingerprint(600, 400, [
+      [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ],
+    ]);
+    expect(normalizeSuggestionFingerprint(JSON.parse(JSON.stringify(fp)))).toEqual(fp);
+    const empty = suggestionFingerprint(600, 400, []);
+    expect(normalizeSuggestionFingerprint(JSON.parse(JSON.stringify(empty)))).toEqual(empty);
+  });
+
+  it('drops anything malformed rather than guessing', () => {
+    for (const junk of [
+      undefined,
+      null,
+      'fp',
+      { paperW: 600 },
+      { paperW: 600, paperH: 400 },
+      { paperW: 600, paperH: 400, drawn: 'box' },
+      { paperW: 600, paperH: 400, drawn: { minX: 0, minY: 0, maxX: 1 } },
+      { paperW: NaN, paperH: 400, drawn: null },
+    ]) {
+      expect(normalizeSuggestionFingerprint(junk)).toBeNull();
+    }
+  });
+});
+
+describe('magnetCentreFromCarriage', () => {
+  const ready: CarriageReading = {
+    position: { x: 412.5, y: 287.25 },
+    machineState: 'Idle',
+    posTrusted: true,
+    untrustedReason: null,
+    plotting: false,
+  };
+
+  it('takes the work position as the magnet centre, unchanged', () => {
+    // Work coordinates are paper mm with machine +Y running down the page —
+    // identity, so a "corrected" Y here would put the magnet in the wrong place.
+    expect(magnetCentreFromCarriage(ready)).toEqual({ ok: true, x: 412.5, y: 287.25 });
+  });
+
+  it('refuses while the position is untrusted, and says why', () => {
+    // After a motor power-down the gantry can be pushed; jog still works but
+    // its numbers mean nothing, and an unmeasured magnet becomes a keep-out
+    // zone the router trusts.
+    const reason = 'The motors were switched off, so the gantry can be moved by hand.';
+    const result = magnetCentreFromCarriage({
+      ...ready,
+      posTrusted: false,
+      untrustedReason: reason,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain(reason);
+      expect(result.reason).toMatch(/re-zero/i);
+    }
+  });
+
+  it('still refuses an untrusted position when no reason was given', () => {
+    const result = magnetCentreFromCarriage({ ...ready, posTrusted: false, untrustedReason: null });
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses with no reading from the machine', () => {
+    expect(magnetCentreFromCarriage({ ...ready, position: null }).ok).toBe(false);
+    expect(magnetCentreFromCarriage({ ...ready, machineState: null }).ok).toBe(false);
+  });
+
+  it('refuses during a plot', () => {
+    expect(magnetCentreFromCarriage({ ...ready, plotting: true }).ok).toBe(false);
+  });
+
+  it('refuses while the carriage is still moving', () => {
+    // Mid-jog the report is a point along the move, not where the pen stops.
+    for (const machineState of ['Jog', 'Run', 'Hold', 'Unknown']) {
+      expect(magnetCentreFromCarriage({ ...ready, machineState }).ok).toBe(false);
+    }
+  });
+
+  it('refuses in alarm, and says to unlock', () => {
+    const result = magnetCentreFromCarriage({ ...ready, machineState: 'Alarm' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/unlock/i);
+  });
+
+  it('refuses a position that is not a number', () => {
+    expect(magnetCentreFromCarriage({ ...ready, position: { x: NaN, y: 3 } }).ok).toBe(false);
+  });
+
+  it('allows a centre off the sheet', () => {
+    // Recording a real magnet is always safer than refusing to: a keep-out
+    // zone the paper does not reach costs nothing.
+    expect(magnetCentreFromCarriage({ ...ready, position: { x: -5, y: 10 } })).toEqual({
+      ok: true,
+      x: -5,
+      y: 10,
+    });
   });
 });

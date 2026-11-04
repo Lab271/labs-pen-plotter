@@ -58,7 +58,8 @@ unattended **Raspberry Pi** setup needs.
   store it on the plotter, where it joins a library every connected device can see and open.
 - **Magnets.** The bed has no vacuum, so tell the app where the hold-down magnets are:
   they're drawn as keep-out circles you can drag, **Suggest** offers clear positions at the
-  sheet's edges, and **pen-up travel is routed around them** — the detour is drawn on the
+  sheet's edges (and says when the artwork or paper has changed since), **Set from carriage**
+  records one where you jogged the pen over it, and **pen-up travel is routed around them** — the detour is drawn on the
   canvas so you can check it before starting. A magnet sitting on a *stroke* turns red and
   blocks the plot, naming which magnet and which artwork: routing can bend a travel move,
   but it cannot move a line that has to be drawn there.

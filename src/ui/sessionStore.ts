@@ -3,7 +3,7 @@ import type { ArtControls } from '../plot/controls';
 import type { ShapeSpec } from '../plot/shapes';
 import type { TextSpec } from '../plot/font';
 import type { ImportSpec } from './ImportWizard';
-import type { Magnet } from '../plot/magnet';
+import type { Magnet, SuggestionFingerprint } from '../plot/magnet';
 import type { Calibration } from '../grbl/settings';
 
 /** A placed artwork as persisted (matches App's PlacedArt). */
@@ -72,6 +72,13 @@ export interface Session {
    * is still holding the same sheet down.
    */
   magnets?: Magnet[];
+  /**
+   * What the sheet looked like when Suggest last ran (paper size and the
+   * drawing's extent), so the app can say when that suggestion no longer fits.
+   * Kept with the magnets because it is about them, and so the hint survives
+   * a reload and shows on every device. Optional: absent means never suggested.
+   */
+  magnetSuggestion?: SuggestionFingerprint | null;
   /**
    * Machine calibration, as pre-1.3 sessions carried it. Still read (so an old
    * session or an old daemon keeps a tuned setup) but no longer written: the
