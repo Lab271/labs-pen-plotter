@@ -90,3 +90,26 @@ export function normalizePens(raw: unknown): Pen[] {
   });
   return out.length > 0 ? out : DEFAULT_PENS.map((p) => ({ ...p }));
 }
+
+/**
+ * Move the pen at `from` to position `to`, shifting the pens between them.
+ *
+ * The library's order *is* the plot order — a multi-pen drawing plots each
+ * pen's strokes as one pass, in library order — so this is how the operator
+ * says "red before black". Returns a new array (the library is shared state,
+ * handed to React and to the gateway) and leaves the input untouched.
+ *
+ * An out-of-range `from` is a no-op rather than an error: the controls that
+ * call this are the ↑ on the first row and the ↓ on the last, and a stale click
+ * landing after another device shortened the list must not throw. `to` is
+ * clamped into the list, so "one past the end" means "last".
+ */
+export function movePen(pens: readonly Pen[], from: number, to: number): Pen[] {
+  const out = pens.slice();
+  if (!Number.isInteger(from) || from < 0 || from >= out.length) return out;
+  const dest = Math.min(Math.max(Math.trunc(to), 0), out.length - 1);
+  if (dest === from) return out;
+  const [pen] = out.splice(from, 1);
+  out.splice(dest, 0, pen);
+  return out;
+}

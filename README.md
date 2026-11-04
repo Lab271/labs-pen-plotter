@@ -50,6 +50,8 @@ unattended **Raspberry Pi** setup needs.
   library is shared with every device; the assignment is saved with the drawing.
 - **Multi-pen plots.** A drawing using several pens plots as one job: everything for one
   pen, then the machine parks at the work origin with the pen up and asks for the next one.
+  Pens plot in the library's order, which the rail spells out (`Plots in this order: Black →
+  Red`); change it with the ↑/↓ on each pen in Settings → Pens, locked while a plot runs.
   Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
   streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
   walk up with a phone, and the prompt is still there to answer.

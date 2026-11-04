@@ -241,6 +241,34 @@ describe('generatePenGroupGcode', () => {
     expect(markers).toEqual([`${PEN_CHANGE_PREFIX}Red 0.5`, `${PEN_CHANGE_PREFIX}Blue 0.5`]);
   });
 
+  it('follows the order the groups are given in, not the default pen library order', () => {
+    // The UI hands groups over in the operator's pen-library order. With the
+    // library reordered to Blue, Black, Red, the program must load the pens in
+    // that order and draw each pen's strokes in its own pass — nothing here may
+    // re-sort the groups back into the built-in order.
+    const gc = generatePenGroupGcode(
+      [
+        { label: 'Blue 0.5', polylines: [square(200)] },
+        { label: 'Black 0.5', polylines: [square(0)] },
+        { label: 'Red 0.5', polylines: [square(100)] },
+      ],
+      opts,
+    );
+    const markers = gc.filter((l) => l.startsWith(PEN_CHANGE_PREFIX));
+    expect(markers).toEqual([`${PEN_CHANGE_PREFIX}Black 0.5`, `${PEN_CHANGE_PREFIX}Red 0.5`]);
+    // Blue (X205) is drawn first, before any pen change; Black (X5) between the
+    // two changes; Red (X105) only after the second.
+    const [first, second] = markers.map((m) => gc.indexOf(m));
+    // The drawn end of each pen's stroke — a draw-feed move, so a travel move
+    // to the same X cannot stand in for it.
+    const at = (x: number) => gc.indexOf(`G1 X${x} Y0 F${opts.drawFeed}`);
+    for (const x of [205, 5, 105]) expect(at(x)).toBeGreaterThanOrEqual(0);
+    expect(at(205)).toBeLessThan(first);
+    expect(at(5)).toBeGreaterThan(first);
+    expect(at(5)).toBeLessThan(second);
+    expect(at(105)).toBeGreaterThan(second);
+  });
+
   it('parks at the work origin with the pen up before every pen change', () => {
     const gc = generatePenGroupGcode(
       [

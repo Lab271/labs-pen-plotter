@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PENS, normalizePen, normalizePens, resolvePen } from '../pen';
+import { DEFAULT_PENS, movePen, normalizePen, normalizePens, resolvePen, type Pen } from '../pen';
 
 describe('resolvePen', () => {
   it('finds a pen by id', () => {
@@ -87,5 +87,57 @@ describe('normalizePens', () => {
       { name: 'also none', color: '#222', widthMm: 0.4 },
     ]);
     expect(pens.map((p) => p.id)).toEqual(['pen1', 'pen2']);
+  });
+});
+
+describe('normalizePens order', () => {
+  it('keeps the stored order, never sorting — the order is the plot order', () => {
+    // Deliberately neither alphabetical, nor by id, nor the default order: a
+    // normaliser that sorted on any key would reorder this.
+    const ids = ['white-07', 'red-05', 'black-05', 'blue-05'];
+    const stored = ids.map((id) => DEFAULT_PENS.find((p) => p.id === id)!);
+    expect(normalizePens(stored).map((p) => p.id)).toEqual(ids);
+    // ...and survives the JSON round trip it takes through the settings file.
+    expect(normalizePens(JSON.parse(JSON.stringify(stored))).map((p) => p.id)).toEqual(ids);
+  });
+});
+
+describe('movePen', () => {
+  const ids = (pens: Pen[]) => pens.map((p) => p.id);
+  const lib = DEFAULT_PENS.slice(0, 4); // black-05, black-08, red-05, blue-05
+
+  it('moves a pen up one place', () => {
+    expect(ids(movePen(lib, 2, 1))).toEqual(['black-05', 'red-05', 'black-08', 'blue-05']);
+  });
+
+  it('moves a pen down one place', () => {
+    expect(ids(movePen(lib, 0, 1))).toEqual(['black-08', 'black-05', 'red-05', 'blue-05']);
+  });
+
+  it('moves a pen across several places, shifting the ones between', () => {
+    expect(ids(movePen(lib, 3, 0))).toEqual(['blue-05', 'black-05', 'black-08', 'red-05']);
+    expect(ids(movePen(lib, 0, 3))).toEqual(['black-08', 'red-05', 'blue-05', 'black-05']);
+  });
+
+  it('clamps the destination, so ↑ on the first row and ↓ on the last change nothing', () => {
+    expect(ids(movePen(lib, 0, -1))).toEqual(ids(lib));
+    expect(ids(movePen(lib, 3, 4))).toEqual(ids(lib));
+    expect(ids(movePen(lib, 1, 99))).toEqual(['black-05', 'red-05', 'blue-05', 'black-08']);
+  });
+
+  it('ignores a source index that is not in the list', () => {
+    // A stale click after another device removed a pen.
+    for (const from of [-1, 4, 1.5, NaN]) expect(ids(movePen(lib, from, 0))).toEqual(ids(lib));
+    expect(movePen([], 0, 1)).toEqual([]);
+  });
+
+  it('returns a new array and leaves the library it was given alone', () => {
+    const before = ids(lib);
+    const moved = movePen(lib, 0, 1);
+    expect(moved).not.toBe(lib);
+    expect(ids(lib)).toEqual(before);
+    // Same pen objects, only reordered — nothing about a pen changes by moving it.
+    expect(moved[1]).toBe(lib[0]);
+    expect(movePen(lib, 1, 1)).not.toBe(lib);
   });
 });
