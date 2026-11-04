@@ -40,7 +40,14 @@ import {
   type ShapeKind,
   type ShapeSpec,
 } from '../plot/shapes';
-import { DEFAULT_TEXT, missingGlyphs, textPolylines, type TextSpec } from '../plot/font';
+import {
+  DEFAULT_TEXT,
+  FONT_FACES,
+  missingGlyphs,
+  resolveFont,
+  textPolylines,
+  type TextSpec,
+} from '../plot/font';
 import { copyName, pastePlacement, reorderMany } from '../plot/scene';
 import { prepareForCut } from '../plot/cut';
 import {
@@ -2709,9 +2716,42 @@ function SpecEditor(props: {
       </>
     );
   }
-  const missing = missingGlyphs(spec.text);
+  const { face, unknownId } = resolveFont(spec.font);
+  const missing = missingGlyphs(spec.text, spec.font);
   return (
     <>
+      <label className="mb-2 flex items-center gap-1.5">
+        <span className="text-xs text-slate-600">Font</span>
+        <select
+          className={`${field} min-w-0 flex-1`}
+          // An unknown id stays selected (and listed) rather than snapping to
+          // the fallback: the stored choice is kept until the operator makes a
+          // new one, so a newer build's project still opens in its own face there.
+          // Its saved geometry is kept too (objects load their stored strokes);
+          // only an edit regenerates it, in the fallback face — hence the note.
+          value={unknownId ?? face.id}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...spec, font: e.target.value })}
+        >
+          {FONT_FACES.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+          {unknownId && <option value={unknownId}>{unknownId} (not available)</option>}
+        </select>
+      </label>
+      {face.credit && (
+        <p className="-mt-1 mb-2 text-[10px] text-slate-400" title={face.credit.full}>
+          {face.credit.short}
+        </p>
+      )}
+      {unknownId && (
+        <p className="mb-2 text-[10px] text-amber-600">
+          Font “{unknownId}” is not available in this version. The saved drawing is kept as it is;
+          any change redraws this text in the {face.name} font. Pick a font to replace it.
+        </p>
+      )}
       <label className="mb-2 block">
         <span className="text-xs text-slate-600">Text</span>
         <textarea
@@ -2751,7 +2791,7 @@ function SpecEditor(props: {
       />
       {missing.length > 0 && (
         <p className="text-[10px] text-amber-600">
-          Not in this font, so not drawn: {missing.join(' ')}
+          Not in the {face.name} font, so not drawn: {missing.join(' ')}
         </p>
       )}
     </>

@@ -1,33 +1,62 @@
 /**
- * A single-line stroke font, and the text → polylines conversion that uses it.
+ * Single-line stroke fonts, and the text → polylines conversion that uses them.
  *
  * A pen plotter draws with a line, not with ink coverage, so text has to be a
  * *skeleton* — one stroke down the middle of each letter. An ordinary outline
  * font gives the letter's contour, which a plotter draws as a hollow double
  * line and which looks wrong at anything under ~20 mm. That is the whole reason
- * this file exists instead of a font library.
+ * this file exists instead of a font library — and why the only Hershey set
+ * here is *Simplex*: Duplex and Triplex draw each stem two or three times over,
+ * which on paper is the same doubled line by another route.
  *
  * ## The glyph format
  *
  * Each glyph is a string of space-separated `x,y` points, with `M` starting a
  * new stroke (pen up, move, pen down). Coordinates are font units in a frame
- * where **y is up**: baseline 0, cap height 7, x-height 4.5, descenders to -2.
- * `textPolylines` scales those to millimetres and flips y, because the plot
- * frame has y running *down* the page.
+ * where **y is up** and the baseline is 0. Every face uses that frame, but each
+ * has its own unit size, so the cap height is a property of the face
+ * (`FontFace.capHeight`), not of this module: `textPolylines` scales by
+ * `sizeMm / capHeight`, which is what makes "10 mm" mean a 10 mm capital in
+ * every face. It also flips y, because the plot frame has y running *down*.
  *
  * Kept as strings because that is what a human can actually edit: adding a
  * glyph means typing the points you would draw, not maintaining a nested array.
+ *
+ * ## Faces
+ *
+ * - **Built-in** — hand-drawn for this app; cap height 7, x-height 4.5,
+ *   descenders to −2. The face of any text saved before faces could be chosen.
+ * - **Hershey Simplex** — the Roman Simplex set of the Hershey Fonts, created by
+ *   Dr. A. V. Hershey at the U. S. National Bureau of Standards, in the data
+ *   format created by James Hurt (Cognition, Inc.). Converted once from
+ *   `rowmans.jhf` into this format; cap height 21. The conversion and the
+ *   source's notice are in `fontHersheySimplex.ts`, and in NOTICE.
  */
 import type { Point, Polyline } from './types';
+import { HERSHEY_ACKNOWLEDGEMENT, HERSHEY_SIMPLEX_GLYPHS } from './fontHersheySimplex';
 
-/** Font units for the cap height — the size a caller asks for in mm. */
-const CAP_UNITS = 7;
-
-interface Glyph {
+export interface Glyph {
   /** Advance width in font units (how far the pen moves on to the next glyph). */
   width: number;
   /** Strokes, in the mini-format described above. */
   d: string;
+}
+
+/**
+ * A single-line face: its glyphs and the metric that sizes them. Everything
+ * that depends on which characters exist or how big a unit is lives here, so a
+ * new face is a new table and one entry in `FONT_FACES`, nothing else.
+ */
+export interface FontFace {
+  /** Stored in `TextSpec.font`, so it must never change once shipped. */
+  id: string;
+  /** What the picker shows. */
+  name: string;
+  /** Font units from the baseline to the top of a capital — what `sizeMm` measures. */
+  capHeight: number;
+  glyphs: Record<string, Glyph>;
+  /** Attribution the face's licence requires to travel with it; the editor shows it. */
+  credit?: { short: string; full: string };
 }
 
 /**
@@ -142,17 +171,61 @@ const GLYPHS: Record<string, Glyph> = {
   },
 };
 
-/** Characters this face can draw, for callers that want to warn before plotting. */
-export function supportedCharacters(): string[] {
-  return Object.keys(GLYPHS);
+/**
+ * Own-property lookup, so a character can never resolve to something on
+ * `Object.prototype`. (`Object.hasOwn` is ES2022; the browser build targets ES2020.)
+ */
+function hasGlyph(glyphs: Record<string, Glyph>, ch: string): boolean {
+  return Object.prototype.hasOwnProperty.call(glyphs, ch);
 }
 
-/** Characters in `text` this face has no glyph for (newlines excluded). */
-export function missingGlyphs(text: string): string[] {
+/** The face of text that names none — everything saved before faces could be chosen. */
+export const BUILTIN_FONT_ID = 'builtin';
+
+/** Every face, in picker order. The first is the fallback. */
+export const FONT_FACES: readonly FontFace[] = [
+  { id: BUILTIN_FONT_ID, name: 'Built-in', capHeight: 7, glyphs: GLYPHS },
+  {
+    id: 'hershey-simplex',
+    name: 'Hershey Simplex',
+    capHeight: 21,
+    glyphs: HERSHEY_SIMPLEX_GLYPHS,
+    credit: {
+      short: 'Hershey Fonts: Dr. A. V. Hershey, U. S. National Bureau of Standards',
+      full: HERSHEY_ACKNOWLEDGEMENT,
+    },
+  },
+];
+
+/**
+ * The face a stored font id draws in. No id is the built-in face, silently —
+ * that is just old data. An id this build does not know (a project saved by a
+ * newer build, say) also draws in the built-in face, but `unknownId` says so,
+ * because switching an operator's chosen face without a word is how a label
+ * gets plotted in the wrong lettering.
+ */
+export function resolveFont(id: string | undefined): { face: FontFace; unknownId?: string } {
+  const face = FONT_FACES.find((f) => f.id === (id ?? BUILTIN_FONT_ID));
+  if (face) return { face };
+  return { face: FONT_FACES[0], unknownId: id };
+}
+
+/** Characters a face can draw, for callers that want to warn before plotting. */
+export function supportedCharacters(fontId?: string): string[] {
+  return Object.keys(resolveFont(fontId).face.glyphs);
+}
+
+/**
+ * Characters in `text` the face has no glyph for (newlines excluded). Per face,
+ * because coverage differs: the Hershey set has `$` and `~`, the built-in face
+ * does not, and the editor has to name what *this* face will skip.
+ */
+export function missingGlyphs(text: string, fontId?: string): string[] {
+  const { glyphs } = resolveFont(fontId).face;
   const missing = new Set<string>();
   for (const ch of text) {
     if (ch === '\n' || ch === '\r') continue;
-    if (!GLYPHS[ch]) missing.add(ch);
+    if (!hasGlyph(glyphs, ch)) missing.add(ch);
   }
   return [...missing];
 }
@@ -166,6 +239,11 @@ export interface TextSpec {
   letterSpacingMm: number;
   /** Baseline-to-baseline distance as a multiple of the cap height. */
   lineSpacing: number;
+  /**
+   * `FontFace.id`. Optional: text saved before faces could be chosen has none
+   * and draws in the built-in face, exactly as it did.
+   */
+  font?: string;
 }
 
 export const DEFAULT_TEXT: TextSpec = {
@@ -174,9 +252,13 @@ export const DEFAULT_TEXT: TextSpec = {
   sizeMm: 20,
   letterSpacingMm: 0,
   lineSpacing: 1.6,
+  font: BUILTIN_FONT_ID,
 };
 
-function parseGlyph(d: string): Point[][] {
+/** A glyph's strokes in font units (y up), or none if the face lacks it. */
+export function glyphStrokes(face: FontFace, ch: string): Point[][] {
+  if (!hasGlyph(face.glyphs, ch)) return [];
+  const { d } = face.glyphs[ch];
   if (!d) return [];
   return d
     .split('M')
@@ -204,7 +286,8 @@ function parseGlyph(d: string): Point[][] {
  * for and cannot remove afterwards.
  */
 export function textPolylines(spec: TextSpec): Polyline[] {
-  const scale = spec.sizeMm / CAP_UNITS;
+  const { face } = resolveFont(spec.font);
+  const scale = spec.sizeMm / face.capHeight;
   const lineStep = spec.sizeMm * (spec.lineSpacing > 0 ? spec.lineSpacing : 1.6);
   const out: Polyline[] = [];
   let penY = 0; // baseline of the current line, in mm, y DOWN
@@ -212,15 +295,14 @@ export function textPolylines(spec: TextSpec): Polyline[] {
   for (const line of spec.text.split('\n')) {
     let penX = 0;
     for (const ch of line) {
-      const glyph = GLYPHS[ch];
-      if (!glyph) continue;
-      for (const stroke of parseGlyph(glyph.d)) {
+      if (!hasGlyph(face.glyphs, ch)) continue;
+      for (const stroke of glyphStrokes(face, ch)) {
         out.push(
           // Flip y: font units are y-up, the paper frame is y-down.
           stroke.map((p) => ({ x: penX + p.x * scale, y: penY - p.y * scale })),
         );
       }
-      penX += glyph.width * scale + spec.letterSpacingMm;
+      penX += face.glyphs[ch].width * scale + spec.letterSpacingMm;
     }
     penY += lineStep;
   }
