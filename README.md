@@ -50,6 +50,8 @@ unattended **Raspberry Pi** setup needs.
   library is shared with every device; the assignment is saved with the drawing.
 - **Multi-pen plots.** A drawing using several pens plots as one job: everything for one
   pen, then the machine parks at the work origin with the pen up and asks for the next one.
+  Pens plot in the library's order, which the rail spells out (`Plots in this order: Black →
+  Red`); change it with the ↑/↓ on each pen in Settings → Pens, locked while a plot runs.
   Confirm and it carries on exactly where it stopped. The pause is a G-code comment the
   streamer holds on — not `M0` — so the hold belongs to the daemon: reload the page, or
   walk up with a phone, and the prompt is still there to answer.
@@ -58,7 +60,8 @@ unattended **Raspberry Pi** setup needs.
   store it on the plotter, where it joins a library every connected device can see and open.
 - **Magnets.** The bed has no vacuum, so tell the app where the hold-down magnets are:
   they're drawn as keep-out circles you can drag, **Suggest** offers clear positions at the
-  sheet's edges, and **pen-up travel is routed around them** — the detour is drawn on the
+  sheet's edges (and says when the artwork or paper has changed since), **Set from carriage**
+  records one where you jogged the pen over it, and **pen-up travel is routed around them** — the detour is drawn on the
   canvas so you can check it before starting. A magnet sitting on a *stroke* turns red and
   blocks the plot, naming which magnet and which artwork: routing can bend a travel move,
   but it cannot move a line that has to be drawn there.

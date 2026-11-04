@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Set a magnet from the carriage** (#64). Jog the pen over a magnet and press **Set** on its
+  row, or **Add at carriage** for a new one: the current work position becomes the magnet's
+  centre, so the keep-out zone the router trusts is measured rather than drawn. Refused, with
+  the reason shown, while the position is not a measurement — after the motors were powered
+  down and before a re-zero, mid-jog, mid-plot, in alarm, or with no connection.
+- **The Magnets section says when its suggestion is stale** (#9). **Suggest** stays manual —
+  the markers are where the real magnets are, so moving them with the artwork would make them
+  lie — but when the paper or the drawing's extent has changed since the last Suggest, the
+  section says so. The comparison is kept with the session, so it survives a reload.
 - **A font picker on text, and a second single-line face: Hershey Simplex** (#5). Converted
   from Hershey's Roman Simplex set — Simplex only, because Duplex and Triplex draw each stem
   twice over, the doubled line a plotter font exists to avoid. The few ASCII glyphs the set
@@ -18,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is per face. Text saved before this keeps the built-in face; text naming a face this build
   doesn't have keeps its saved strokes, the editor says so, and an edit redraws it in the
   built-in face. Attribution in the new `NOTICE`.
+
+### Fixed
+
+- **Stored magnets are normalized on the way in.** A session or project file whose magnet had
+  a zero, negative or missing radius was used as-is, which silently disabled that keep-out
+  zone; it now gets the default radius.
 
 ## [1.4.1] - 2026-10-22
 

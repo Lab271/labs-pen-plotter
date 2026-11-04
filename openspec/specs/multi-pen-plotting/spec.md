@@ -24,6 +24,29 @@ order of pens SHALL be predictable and under the operator's control.
 - **WHEN** the operator changes the order of the pen library
 - **THEN** the next plot follows the new order
 
+#### Scenario: The pen library is reordered with buttons
+
+- **WHEN** the operator opens Settings → Pens, on a desktop or on a phone
+- **THEN** each pen has a move-up and a move-down control that work by a single tap or click, with
+  no drag required; the first pen cannot move up and the last cannot move down
+
+#### Scenario: The order is shown with the job
+
+- **WHEN** the page holds artwork assigned to more than one pen, in drawing mode
+- **THEN** the main page states the order the pens will plot in, and that statement follows a
+  change to the library order without a reload
+
+#### Scenario: The order cannot change mid-plot
+
+- **WHEN** a plot started from this client is running
+- **THEN** the pen library's move-up and move-down controls are disabled, because the running
+  program was generated from the order as it was
+
+#### Scenario: Every device agrees on the order
+
+- **WHEN** the operator reorders the pen library on one device
+- **THEN** another device on the same plotter shows, and plots in, the new order
+
 #### Scenario: A pen that draws nothing is skipped
 
 - **WHEN** a pen in the library has no artwork assigned to it

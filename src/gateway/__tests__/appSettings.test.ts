@@ -61,6 +61,18 @@ describe('normalizeAppSettings', () => {
     expect(one.pens).toEqual([{ id: 'x', name: 'Sepia', color: '#8b5a2b', widthMm: 0.3 }]);
   });
 
+  it('round-trips a reordered pen library in the order it was saved', () => {
+    // The library order is the plot order, and the gateway persists it as
+    // JSON and normalises it on the way in and out. A reordered library has to
+    // come back exactly as it went in, or the next plot quietly reverts to the
+    // default sequence on every device.
+    const reordered = [...DEFAULT_PENS].reverse();
+    const saved = normalizeAppSettings({ ...DEFAULT_APP_SETTINGS, pens: reordered });
+    const restored = normalizeAppSettings(JSON.parse(JSON.stringify(saved)));
+    expect(restored.pens.map((p) => p.id)).toEqual(reordered.map((p) => p.id));
+    expect(restored.pens).toEqual(reordered);
+  });
+
   it('does not alias the defaults, so a mutation cannot leak into them', () => {
     const s = normalizeAppSettings(undefined);
     s.calibration.drawFeed = 1;

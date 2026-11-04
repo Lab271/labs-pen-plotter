@@ -1,8 +1,16 @@
 import type { Calibration } from '../grbl/settings';
-import type { Pen } from '../plot/pen';
+import { movePen, type Pen } from '../plot/pen';
 import type { KnifeProfile } from '../plot/knife';
 import type { GrblSettings } from '../grbl/types';
 import { btn, btnPrimary, field } from './styles';
+
+/**
+ * A pen row's ↑/↓. Stacked, so the pair costs one narrow column on a phone and
+ * leaves the name field its width; each is a whole 24×32 px target, not a bare
+ * glyph a fingertip has to hit exactly.
+ */
+const reorderBtn =
+  'flex h-6 w-8 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-25 disabled:hover:bg-transparent';
 
 /** Labels for the GRBL settings worth naming in the read-only `$$` view. */
 const GRBL_LABELS: Record<number, string> = {
@@ -169,9 +177,40 @@ export function SettingsPage(p: SettingsPageProps) {
               the tip really lays down, in mm. Artwork keeps the pen it was assigned, so renaming or
               recolouring a pen updates every drawing that uses it.
             </p>
+            <p className="mb-1.5 text-xs text-slate-500">
+              <b>A multi-pen drawing plots top to bottom</b>: every stroke for the first pen in this
+              list, then a pause to load the next. Use ↑ ↓ to change the order.
+              {p.plotting && <span className="text-amber-600"> Locked while plotting.</span>}
+            </p>
             <ul className="mb-1.5 space-y-1">
               {p.pens.map((pen, i) => (
                 <li key={pen.id} className="flex items-center gap-1">
+                  {/* Buttons, not drag: the app is meant to be driven from a phone at
+                      the machine, and drag-to-reorder is unreliable under a finger.
+                      Locked while a plot runs: that program was generated from the
+                      order as it was, so a change now would leave the order shown on
+                      screen disagreeing with the pen-change prompts the machine is
+                      about to give. */}
+                  <div className="flex shrink-0 flex-col">
+                    <button
+                      className={reorderBtn}
+                      aria-label={`Move ${pen.name} up`}
+                      title={p.plotting ? 'Locked while plotting' : 'Plot this pen earlier'}
+                      disabled={p.plotting || i === 0}
+                      onClick={() => p.onPens(movePen(p.pens, i, i - 1))}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className={reorderBtn}
+                      aria-label={`Move ${pen.name} down`}
+                      title={p.plotting ? 'Locked while plotting' : 'Plot this pen later'}
+                      disabled={p.plotting || i === p.pens.length - 1}
+                      onClick={() => p.onPens(movePen(p.pens, i, i + 1))}
+                    >
+                      ↓
+                    </button>
+                  </div>
                   <input
                     type="color"
                     className="h-6 w-8 shrink-0 rounded border border-slate-300"
