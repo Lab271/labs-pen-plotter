@@ -1,0 +1,44 @@
+PenPlotter271
+Copyright 2026 Schuberg Philis B.V.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party data, listed below with the notices their
+sources require.
+
+--------------------------------------------------------------------------------
+Hershey Fonts — src/plot/fontHersheySimplex.ts
+--------------------------------------------------------------------------------
+
+The "Hershey Simplex" text face is converted from the Roman Simplex set of the
+Hershey Fonts, file hershey-fonts/rowmans.jhf in Kamal Mostafa's hershey-fonts
+distribution (https://github.com/kamalmostafa/hershey-fonts, commit
+1356bf2f83d380fcef68c887e88675eb9d445d86), which takes its font data from
+http://emergent.unpythonic.net/software/hershey. Only the glyph data is used;
+none of that distribution's GPL-licensed library or tools code is included.
+
+The notice that accompanies the font data, quoted verbatim:
+
+USE RESTRICTION:
+    This distribution of the Hershey Fonts may be used by anyone for
+    any purpose, commercial or otherwise, providing that:
+        1. The following acknowledgements must be distributed with
+            the font data:
+            - The Hershey Fonts were originally created by Dr.
+                A. V. Hershey while working at the U. S.
+                National Bureau of Standards.
+            - The format of the Font data in this distribution
+                was originally created by
+                    James Hurt
+                    Cognition, Inc.
+                    900 Technology Park Drive
+                    Billerica, MA 01821
+                    (mit-eddie!ci-dandelion!hurt)
+        2. The font data in this distribution may be converted into
+            any other format *EXCEPT* the format distributed by
+            the U.S. NTIS (which organization holds the rights
+            to the distribution and use of the font data in that
+            particular format). Not that anybody would really
+            *want* to use their format... each point is described
+            in eight bytes as "xxx yyy:", where xxx and yyy are
+            the coordinate values as ASCII numbers.
