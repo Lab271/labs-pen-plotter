@@ -185,7 +185,9 @@ export function PlotCanvas(props: Props) {
             }
           }}
           onTransformEnd={(e) => {
-            const n = e.target as Konva.Group;
+            // currentTarget is this Group (the node the Transformer resizes);
+            // e.target is typed Shape | Stage, which konva >= 10.9 won't cast to Group.
+            const n = e.currentTarget;
             onPlacement(a.id, { x: n.x(), y: n.y(), scale: n.scaleX(), rotation: n.rotation() });
           }}
         >
