@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@types/ws": "^8.18.2",
-    "konva": "^10.9.0",
+    "konva": "^10.9.1",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.1",
